@@ -1,0 +1,46 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # API Gateway
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "3000:3000"
+    depends_on:
+      - auth-service
+      - user-service
+      - menu-service
+      - order-service
+      - payment-service
+      - review-service
+    networks:
+      - blaban-network
+    restart: always
+
+  # Authentication Service
+  auth-service:
+    build: ./auth-service
+    ports:
+      - "3002:3002"
+    environment:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+    depends_on:
+      - mongo
+      - redis
+    networks:
+      - blaban-network
+    restart: on-failure
+
+  # User Service
+  user-service:
+    build: ./user-service
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mongo
+      - redis
+    networks:
+      - blaban-network
+    restart: on-failure
