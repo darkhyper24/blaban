@@ -1,10 +1,17 @@
 package main
 
 import (
-	"context"
 	"log"
+	"os"
 
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/logger"
+
+	"auth/internal/controllers"
 	"auth/internal/db"
+	"auth/internal/routing"
+	"auth/internal/service"
 )
 
 func main() {
@@ -15,14 +22,26 @@ func main() {
 	}
 	defer db.Close()
 
-	// Test the connection
-	var version string
-	err = pool.QueryRow(context.Background(), "SELECT version()").Scan(&version)
-	if err != nil {
-		log.Fatalf("Failed to query database: %v", err)
+	// Create service and controller
+	authService := service.NewAuthService(pool)
+	authController := controllers.NewAuthController(authService)
+
+	// Create Fiber app
+	app := fiber.New()
+
+	// Add middleware
+	app.Use(logger.New())
+	app.Use(cors.New())
+
+	// Setup routes
+	routing.SetupRoutes(app, authController)
+
+	// Start the server
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
 	}
 
-	log.Printf("Connected to PostgreSQL: %s", version)
-
-	// Continue with your application...
+	log.Printf("Starting auth service on port %s", port)
+	log.Fatal(app.Listen(":" + port))
 }

@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom'; // Add this import
 import { useAuth } from '../context/authContext';
 
-const LoginForm: React.FC = () => {
+const SignupForm: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
-  const { login, loginWithGoogle } = useAuth();
-  const navigate = useNavigate(); // Add this hook
+  const { signUp, loginWithGoogle } = useAuth();
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -17,11 +16,10 @@ const LoginForm: React.FC = () => {
     setIsLoading(true);
     
     try {
-      await login(email, password);
-      // Add navigation after successful login
-      navigate('/'); // Navigate to home page
+      await signUp(email, password, name);
+      // Redirect or update UI as needed
     } catch (err: any) {
-      setError(err.message || 'Failed to login');
+      setError(err.message || 'Failed to sign up');
     } finally {
       setIsLoading(false);
     }
@@ -30,19 +28,29 @@ const LoginForm: React.FC = () => {
   const handleGoogleLogin = async () => {
     try {
       await loginWithGoogle();
-      // No navigate here because Google OAuth will redirect
     } catch (err: any) {
-      setError(err.message || 'Failed to login with Google');
+      setError(err.message || 'Failed to sign up with Google');
     }
   };
   
   return (
-    <div className="login-form">
-      <h2>Login</h2>
+    <div className="signup-form">
+      <h2>Create Account</h2>
       
       {error && <div className="error-message">{error}</div>}
       
       <form onSubmit={handleSubmit}>
+        <div className="form-group">
+          <label htmlFor="name">Name</label>
+          <input
+            id="name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </div>
+        
         <div className="form-group">
           <label htmlFor="email">Email</label>
           <input
@@ -67,24 +75,24 @@ const LoginForm: React.FC = () => {
         
         <div className="form-actions">
           <button type="submit" disabled={isLoading}>
-            {isLoading ? 'Logging in...' : 'Login'}
+            {isLoading ? 'Creating Account...' : 'Sign Up'}
           </button>
         </div>
       </form>
       
       <div className="social-login">
         <button onClick={handleGoogleLogin} className="google-btn">
-          Login with Google
+          Sign up with Google
         </button>
       </div>
       
       <div className="form-footer">
         <p>
-          Don't have an account? <Link to="/signup">Sign Up</Link>
+          Already have an account? <a href="/login">Login</a>
         </p>
       </div>
     </div>
   );
 };
 
-export default LoginForm;
+export default SignupForm;
