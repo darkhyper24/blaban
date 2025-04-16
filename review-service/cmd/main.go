@@ -13,5 +13,5 @@ func main() {
 		return c.SendString("Reviews service")
 	})
 
-	log.Fatal(app.Listen(":3003"))
+	log.Fatal(app.Listen(":8086"))
 }
