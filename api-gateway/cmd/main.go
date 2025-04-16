@@ -31,7 +31,7 @@ func main() {
 	app.Use(recover.New())
 	// rate limiter b2a w keda
 	app.Use(limiter.New(limiter.Config{
-		Max:        100, 
+		Max:        100,
 		Expiration: 1 * time.Minute,
 		KeyGenerator: func(c *fiber.Ctx) string {
 			return c.IP() // we're rate limiting by IP address

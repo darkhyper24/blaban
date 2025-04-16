@@ -32,7 +32,7 @@ func main() {
 	app.Get("/api/auth/callback", handleGoogleCallback)
 	app.Get("/api/auth/verify", verifyToken)
 
-	log.Fatal(app.Listen(":3002"))
+	log.Fatal(app.Listen(":8082"))
 }
 
 func handleGoogleLogin(c *fiber.Ctx) error {

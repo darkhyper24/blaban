@@ -45,7 +45,7 @@ func main() {
 	app.Get("/api/menu/search", handleSearchItems)
 	app.Get("/api/menu/filter", handleFilterItems)
 
-	log.Fatal(app.Listen(":3003"))
+	log.Fatal(app.Listen(":8083"))
 }
 
 func handleGetMenu(c *fiber.Ctx) error {

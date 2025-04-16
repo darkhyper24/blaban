@@ -31,7 +31,7 @@ func main() {
 	app.Get("/api/orders/:id", handleGetOrder)
 	app.Post("/api/orders", handleCreateOrder)
 
-	log.Fatal(app.Listen(":3004"))
+	log.Fatal(app.Listen(":8084"))
 }
 
 func handleGetOrders(c *fiber.Ctx) error {

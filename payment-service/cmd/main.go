@@ -32,7 +32,7 @@ func main() {
 	app.Post("/api/payments/webhook", handlePaymentWebhook)
 	app.Get("/api/payments/order/:orderId", handleGetPaymentByOrder)
 
-	log.Fatal(app.Listen(":3005"))
+	log.Fatal(app.Listen(":8085"))
 }
 
 func handleCreatePayment(c *fiber.Ctx) error {

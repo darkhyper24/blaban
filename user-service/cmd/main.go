@@ -31,7 +31,7 @@ func main() {
 	app.Get("/api/users/profile", handleGetProfile)
 	app.Put("/api/users/profile", handleUpdateProfile)
 
-	log.Fatal(app.Listen(":3001"))
+	log.Fatal(app.Listen(":8081"))
 }
 
 func handleSignup(c *fiber.Ctx) error {
