@@ -1,10 +1,18 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 )
@@ -21,10 +29,23 @@ func main() {
 	app.Use(cors.New())
 	app.Use(logger.New())
 	app.Use(recover.New())
+	// rate limiter b2a w keda
+	app.Use(limiter.New(limiter.Config{
+		Max:        100, 
+		Expiration: 1 * time.Minute,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return c.IP() // we're rate limiting by IP address
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+				"error": "Rate limit exceeded",
+			})
+		},
+	}))
 
 	setupRoutes(app)
 
-	log.Fatal(app.Listen(":3000"))
+	log.Fatal(app.Listen("0.0.0.0:8080"))
 }
 
 func setupRoutes(app *fiber.App) {
@@ -45,15 +66,65 @@ func setupRoutes(app *fiber.App) {
 }
 
 func createServiceProxy(service string, port int) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	client := &http.Client{
+		Timeout: time.Second * 10,
+	}
 
-		// THIS IS A PLACEHOLDER IMPLEMENTATION JUST TO GUIDE Y'ALL, WHEN YOU IMPLEMENT
-		// PLEASE MAKE IT FORWARD TO A REAL IMPLEMENTATION S'IL VOUS PLAIT
-		return c.JSON(fiber.Map{
-			"proxy_to": service,
-			"port":     port,
-			"path":     c.Path(),
-			"method":   c.Method(),
-		})
+	return func(c *fiber.Ctx) error {
+		// get service URL from environment variable
+		serviceURL := os.Getenv(strings.ToUpper(service) + "_URL")
+		if serviceURL == "" {
+			// fallback to local development
+			serviceURL = fmt.Sprintf("http://%s:%d", service, port)
+		}
+
+		// build the target URL
+		path := strings.TrimPrefix(c.Path(), "/api"+"/"+strings.Split(service, "-")[0])
+		targetURL := serviceURL + path
+
+		// create a new request
+		req, err := http.NewRequest(c.Method(), targetURL, bytes.NewReader(c.Body()))
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error":   "Failed to create request",
+				"details": err.Error(),
+			})
+		}
+
+		// copy headers
+		for key, values := range c.GetReqHeaders() {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+
+		// execute the request
+		resp, err := client.Do(req)
+		if err != nil {
+			// implement circuit breaker pattern
+			log.Printf("Service %s is unreachable: %v", service, err)
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+				"error": "Service temporarily unavailable",
+			})
+		}
+		defer resp.Body.Close()
+
+		// read response body
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to read response",
+			})
+		}
+
+		// set response headers
+		for key, values := range resp.Header {
+			for _, value := range values {
+				c.Set(key, value)
+			}
+		}
+
+		// return response
+		return c.Status(resp.StatusCode).Send(body)
 	}
 }
