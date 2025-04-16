@@ -3,93 +3,105 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
+	"strings"
 
 	"auth/internal/models"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type AuthService struct {
-	dbPool         *pgxpool.Pool
-	supabaseURL    string
-	supabaseKey    string
-	googleRedirect string
-	jwtSecret      string
+	db          *pgxpool.Pool
+	supabaseURL string
+	supabaseKey string
+	redirectURL string
 }
 
+// NewAuthService creates a new authentication service
 func NewAuthService(dbPool *pgxpool.Pool) *AuthService {
 	return &AuthService{
-		dbPool:         dbPool,
-		supabaseURL:    os.Getenv("SUPABASE_URL"),
-		supabaseKey:    os.Getenv("SUPABASE_PASSWORD"),
-		googleRedirect: os.Getenv("GOOGLE_REDIRECT_URL"),
-		jwtSecret:      os.Getenv("JWT_SECRET"),
+		db:          dbPool,
+		supabaseURL: os.Getenv("SUPABASE_URL"),
+		supabaseKey: os.Getenv("SUPABASE_PASSWORD"),
+		redirectURL: os.Getenv("GOOGLE_REDIRECT_URL"),
 	}
 }
 
-// SignUp registers a new user with email/password
-func (s *AuthService) SignUp(ctx context.Context, email, password, name string) (*models.User, *models.TokenResponse, error) {
-	// Create user in Supabase Auth
-	tokenResp, err := s.signUpWithSupabase(email, password)
+// SignUp registers a new user with email and password
+func (s *AuthService) SignUp(ctx context.Context, email, password, name string) (*models.Users, *models.TokenResponse, error) {
+	// Register with Supabase
+	tokens, err := s.supabaseRequest("/auth/v1/signup", map[string]string{
+		"email":    email,
+		"password": password,
+	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("signup failed: %w", err)
 	}
 
-	// Extract user ID from token
-	userID := getUserIDFromToken(tokenResp.AccessToken)
+	// Extract user ID from JWT token
+	userID := s.getUserIDFromToken(tokens.AccessToken)
 
 	// Create user record in our database
-	user, err := s.createUserRecord(ctx, userID, email, name, "email")
+	user, err := s.saveUser(ctx, userID, email, name)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return user, tokenResp, nil
+	return user, tokens, nil
 }
 
-// Login authenticates a user with email/password
-func (s *AuthService) Login(ctx context.Context, email, password string) (*models.User, *models.TokenResponse, error) {
-	// Login with Supabase Auth
-	tokenResp, err := s.loginWithSupabase(email, password)
+// Login authenticates a user
+// Login authenticates a user
+func (s *AuthService) Login(ctx context.Context, email, password string) (*models.Users, *models.TokenResponse, error) {
+	// Login with Supabase
+	tokens, err := s.supabaseRequest("/auth/v1/token?grant_type=password", map[string]string{
+		"email":    email,
+		"password": password,
+	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("supabase auth failed: %w", err)
 	}
 
-	// Get user from database
-	userID := getUserIDFromToken(tokenResp.AccessToken)
+	// Get user from our database
+	userID := s.getUserIDFromToken(tokens.AccessToken)
 	user, err := s.getUserByID(ctx, userID)
 	if err != nil {
-		return nil, nil, err
+		// User exists in Supabase but not in our database
+		// Try to create them automatically
+		user, err = s.saveUser(ctx, userID, email, email) // Use email as temporary name
+		if err != nil {
+			return nil, nil, fmt.Errorf("user authenticated but not found in database: %w", err)
+		}
 	}
 
-	return user, tokenResp, nil
+	return user, tokens, nil
 }
 
-// GetGoogleAuthURL generates the Google OAuth URL
+// GetGoogleAuthURL returns the Google OAuth URL
 func (s *AuthService) GetGoogleAuthURL() string {
-	return fmt.Sprintf(
-		"https://%s/auth/v1/authorize?provider=google&redirect_to=%s",
-		s.supabaseURL,
-		s.googleRedirect,
-	)
+	baseURL := strings.TrimPrefix(s.supabaseURL, "https://")
+	return fmt.Sprintf("https://%s/auth/v1/authorize?provider=google&redirect_to=%s",
+		baseURL, s.redirectURL)
 }
 
-// HandleGoogleCallback processes the Google OAuth callback
-func (s *AuthService) HandleGoogleCallback(ctx context.Context, code string) (*models.User, *models.TokenResponse, error) {
-	// Exchange code for tokens with Supabase
-	tokenResp, err := s.exchangeCodeForToken(code)
+// HandleGoogleCallback processes the OAuth callback
+func (s *AuthService) HandleGoogleCallback(ctx context.Context, code string) (*models.Users, *models.TokenResponse, error) {
+	// Exchange code for tokens
+	tokens, err := s.supabaseRequest("/auth/v1/token?grant_type=authorization_code",
+		map[string]string{"code": code})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Get user info from Google
-	googleUser, err := s.getGoogleUserInfo(tokenResp.AccessToken)
+	// Get user info
+	googleUser, err := s.getGoogleUserInfo(tokens.AccessToken)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -98,70 +110,35 @@ func (s *AuthService) HandleGoogleCallback(ctx context.Context, code string) (*m
 	user, err := s.getUserByEmail(ctx, googleUser.Email)
 	if err != nil {
 		// Create new user
-		user, err = s.createUserRecord(ctx, googleUser.ID, googleUser.Email, googleUser.Name, "google")
+		user, err = s.saveUser(ctx, googleUser.ID, googleUser.Email, googleUser.Name)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	return user, tokenResp, nil
+	return user, tokens, nil
 }
 
-// RefreshToken refreshes an access token using a refresh token
+// RefreshToken gets a new access token
 func (s *AuthService) RefreshToken(refreshToken string) (*models.TokenResponse, error) {
-	url := fmt.Sprintf("https://%s/auth/v1/token?grant_type=refresh_token", s.supabaseURL)
-
-	// Prepare request body
-	reqBody := map[string]string{
-		"refresh_token": refreshToken,
-	}
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create request
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
-
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("apikey", s.supabaseKey)
-
-	// Execute request
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	// Parse response
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to refresh token: %s", resp.Status)
-	}
-
-	var tokenResp models.TokenResponse
-	err = json.NewDecoder(resp.Body).Decode(&tokenResp)
-	if err != nil {
-		return nil, err
-	}
-
-	return &tokenResp, nil
+	return s.supabaseRequest("/auth/v1/token?grant_type=refresh_token",
+		map[string]string{"refresh_token": refreshToken})
 }
 
-// Helper methods for Supabase API interactions
-func (s *AuthService) signUpWithSupabase(email, password string) (*models.TokenResponse, error) {
-	url := fmt.Sprintf("https://%s/auth/v1/signup", s.supabaseURL)
+// Helper methods
 
-	// Prepare request body
-	reqBody := map[string]string{
-		"email":    email,
-		"password": password,
-	}
-	jsonData, err := json.Marshal(reqBody)
+// supabaseRequest makes a request to the Supabase API
+// supabaseRequest makes a request to the Supabase API
+func (s *AuthService) supabaseRequest(path string, data map[string]string) (*models.TokenResponse, error) {
+	// Prepare URL
+	baseURL := strings.TrimPrefix(s.supabaseURL, "https://")
+	url := fmt.Sprintf("https://%s%s", baseURL, path)
+
+	// For debugging
+	fmt.Printf("Making request to: %s\n", url)
+
+	// Create request body
+	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +153,7 @@ func (s *AuthService) signUpWithSupabase(email, password string) (*models.TokenR
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("apikey", s.supabaseKey)
 
-	// Execute request
+	// Send request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -184,45 +161,58 @@ func (s *AuthService) signUpWithSupabase(email, password string) (*models.TokenR
 	}
 	defer resp.Body.Close()
 
-	// Parse response
+	// Check for errors and read response body for error details
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("failed to sign up: %s - %s", resp.Status, string(bodyBytes))
+		return nil, fmt.Errorf("API error %d: %s - %s",
+			resp.StatusCode, resp.Status, string(bodyBytes))
 	}
 
+	// Parse response
 	var tokenResp models.TokenResponse
-	err = json.NewDecoder(resp.Body).Decode(&tokenResp)
-	if err != nil {
+	if err = json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 		return nil, err
 	}
 
 	return &tokenResp, nil
 }
 
-func (s *AuthService) loginWithSupabase(email, password string) (*models.TokenResponse, error) {
-	url := fmt.Sprintf("https://%s/auth/v1/token?grant_type=password", s.supabaseURL)
-
-	// Prepare request body
-	reqBody := map[string]string{
-		"email":    email,
-		"password": password,
+// getUserIDFromToken extracts the user ID from a JWT token
+func (s *AuthService) getUserIDFromToken(token string) string {
+	// Quick and simple token parsing
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return uuid.New().String()
 	}
-	jsonData, err := json.Marshal(reqBody)
+
+	// Decode the payload
+	payload, err := base64Decode(parts[1])
+	if err != nil {
+		return uuid.New().String()
+	}
+
+	// Extract the user ID
+	var claims map[string]interface{}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return uuid.New().String()
+	}
+
+	if sub, ok := claims["sub"].(string); ok {
+		return sub
+	}
+
+	return uuid.New().String()
+}
+
+// getGoogleUserInfo gets user info from Google
+func (s *AuthService) getGoogleUserInfo(token string) (*models.GoogleUser, error) {
+	req, err := http.NewRequest("GET", "https://www.googleapis.com/oauth2/v1/userinfo", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// Create request
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
+	req.Header.Set("Authorization", "Bearer "+token)
 
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("apikey", s.supabaseKey)
-
-	// Execute request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -230,176 +220,72 @@ func (s *AuthService) loginWithSupabase(email, password string) (*models.TokenRe
 	}
 	defer resp.Body.Close()
 
-	// Parse response
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("failed to login: %s - %s", resp.Status, string(bodyBytes))
+		return nil, fmt.Errorf("failed to get user info")
 	}
 
-	var tokenResp models.TokenResponse
-	err = json.NewDecoder(resp.Body).Decode(&tokenResp)
+	var user models.GoogleUser
+	err = json.NewDecoder(resp.Body).Decode(&user)
 	if err != nil {
 		return nil, err
-	}
-
-	return &tokenResp, nil
-}
-
-func (s *AuthService) exchangeCodeForToken(code string) (*models.TokenResponse, error) {
-	// This is a simplified version. Actual implementation would depend on Supabase's OAuth2 flow
-	// For a real implementation, you would need to exchange the authorization code for tokens
-
-	// This is a placeholder
-	url := fmt.Sprintf("https://%s/auth/v1/token?grant_type=authorization_code", s.supabaseURL)
-
-	// Prepare request body
-	reqBody := map[string]string{
-		"code": code,
-	}
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create request
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
-
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("apikey", s.supabaseKey)
-
-	// Execute request
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	// Parse response
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to exchange code: %s", resp.Status)
-	}
-
-	var tokenResp models.TokenResponse
-	err = json.NewDecoder(resp.Body).Decode(&tokenResp)
-	if err != nil {
-		return nil, err
-	}
-
-	return &tokenResp, nil
-}
-
-func (s *AuthService) getGoogleUserInfo(accessToken string) (*models.GoogleUser, error) {
-	// Real implementation would call Google's API to get user info
-	// This is a placeholder
-	url := "https://www.googleapis.com/oauth2/v1/userinfo"
-
-	// Create request
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	// Set headers
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-
-	// Execute request
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	// Parse response
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get user info: %s", resp.Status)
-	}
-
-	var googleUser models.GoogleUser
-	err = json.NewDecoder(resp.Body).Decode(&googleUser)
-	if err != nil {
-		return nil, err
-	}
-
-	return &googleUser, nil
-}
-
-// Database operations
-func (s *AuthService) createUserRecord(ctx context.Context, id, email, name, provider string) (*models.User, error) {
-	// Insert user into our database
-	query := `
-        INSERT INTO users (id, email, name, provider, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $5)
-        RETURNING id, email, name, provider, created_at, updated_at
-    `
-
-	now := time.Now()
-	user := models.User{}
-
-	err := s.dbPool.QueryRow(ctx, query, id, email, name, provider, now).Scan(
-		&user.ID,
-		&user.Email,
-		&user.Name,
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to create user record: %w", err)
 	}
 
 	return &user, nil
 }
 
-func (s *AuthService) getUserByID(ctx context.Context, id string) (*models.User, error) {
-	query := `
-        SELECT id, email, name, provider, created_at, updated_at
-        FROM users
-        WHERE id = $1
-    `
+// Database methods
 
-	user := models.User{}
-
-	err := s.dbPool.QueryRow(ctx, query, id).Scan(
-		&user.ID,
-		&user.Email,
-		&user.Name,
-	)
+// saveUser saves a user to the database
+func (s *AuthService) saveUser(ctx context.Context, id, email, name string) (*models.Users, error) {
+	user := models.Users{}
+	err := s.db.QueryRow(ctx,
+		"INSERT INTO users (id, email, name) VALUES ($1, $2, $3) RETURNING id, email, name",
+		id, email, name,
+	).Scan(&user.ID, &user.Email, &user.Name)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
+		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
 	return &user, nil
 }
 
-func (s *AuthService) getUserByEmail(ctx context.Context, email string) (*models.User, error) {
-	query := `
-        SELECT id, email, name, provider, created_at, updated_at
-        FROM users
-        WHERE email = $1
-    `
-
-	user := models.User{}
-
-	err := s.dbPool.QueryRow(ctx, query, email).Scan(
-		&user.ID,
-		&user.Email,
-		&user.Name,
-	)
+// getUserByID gets a user by ID
+func (s *AuthService) getUserByID(ctx context.Context, id string) (*models.Users, error) {
+	user := models.Users{}
+	err := s.db.QueryRow(ctx,
+		"SELECT id, email, name FROM users WHERE id = $1", id,
+	).Scan(&user.ID, &user.Email, &user.Name)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
+		return nil, fmt.Errorf("user not found: %w", err)
 	}
 
 	return &user, nil
 }
 
-// Helper function to get user ID from JWT token
-func getUserIDFromToken(token string) string {
-	// This is a placeholder. In a real implementation, you would decode the JWT and extract the user ID
-	return "user-id-from-token"
+// getUserByEmail gets a user by email
+func (s *AuthService) getUserByEmail(ctx context.Context, email string) (*models.Users, error) {
+	user := models.Users{}
+	err := s.db.QueryRow(ctx,
+		"SELECT id, email, name FROM users WHERE email = $1", email,
+	).Scan(&user.ID, &user.Email, &user.Name)
+
+	if err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+
+	return &user, nil
+}
+
+// base64Decode decodes a base64-encoded string
+func base64Decode(s string) ([]byte, error) {
+	// Add padding if necessary
+	switch len(s) % 4 {
+	case 2:
+		s += "=="
+	case 3:
+		s += "="
+	}
+	return base64.RawURLEncoding.DecodeString(s)
 }

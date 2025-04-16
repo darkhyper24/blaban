@@ -7,18 +7,16 @@ import (
 )
 
 type AuthController struct {
-	authService *service.AuthService
+	auth *service.AuthService
 }
 
 func NewAuthController(authService *service.AuthService) *AuthController {
-	return &AuthController{
-		authService: authService,
-	}
+	return &AuthController{auth: authService}
 }
 
 // SignUp handles user registration
 func (c *AuthController) SignUp(ctx *fiber.Ctx) error {
-	// Parse request body
+	// Parse and validate request
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -26,65 +24,53 @@ func (c *AuthController) SignUp(ctx *fiber.Ctx) error {
 	}
 
 	if err := ctx.BodyParser(&req); err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request format",
-		})
+		return ctx.Status(400).JSON(fiber.Map{"error": "Invalid request"})
 	}
 
-	// Validate input
 	if req.Email == "" || req.Password == "" || req.Name == "" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Email, password, and name are required",
-		})
+		return ctx.Status(400).JSON(fiber.Map{"error": "Email, password, and name are required"})
 	}
 
 	// Sign up user
-	user, tokens, err := c.authService.SignUp(ctx.Context(), req.Email, req.Password, req.Name)
+	user, tokens, err := c.auth.SignUp(ctx.Context(), req.Email, req.Password, req.Name)
 	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return ctx.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusCreated).JSON(fiber.Map{
+	// Return success response
+	return ctx.Status(201).JSON(fiber.Map{
 		"user":         user,
 		"accessToken":  tokens.AccessToken,
 		"refreshToken": tokens.RefreshToken,
-		"tokenType":    tokens.TokenType,
-		"expiresIn":    tokens.ExpiresIn,
 	})
 }
 
 // Login handles user authentication
+// Login handles user authentication
 func (c *AuthController) Login(ctx *fiber.Ctx) error {
-	// Parse request body
+	// Parse and validate request
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 
 	if err := ctx.BodyParser(&req); err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request format",
-		})
+		return ctx.Status(400).JSON(fiber.Map{"error": "Invalid request format"})
 	}
 
-	// Validate input
 	if req.Email == "" || req.Password == "" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Email and password are required",
-		})
+		return ctx.Status(400).JSON(fiber.Map{"error": "Email and password are required"})
 	}
 
 	// Login user
-	user, tokens, err := c.authService.Login(ctx.Context(), req.Email, req.Password)
+	user, tokens, err := c.auth.Login(ctx.Context(), req.Email, req.Password)
 	if err != nil {
-		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": "Invalid credentials",
-		})
+		// Return the actual error message for debugging
+		return ctx.Status(401).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+	// Return success response
+	return ctx.Status(200).JSON(fiber.Map{
 		"user":         user,
 		"accessToken":  tokens.AccessToken,
 		"refreshToken": tokens.RefreshToken,
@@ -93,69 +79,47 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 	})
 }
 
-// GetGoogleAuthURL provides the URL for Google OAuth login
+// GetGoogleAuthURL provides the URL for Google OAuth
 func (c *AuthController) GetGoogleAuthURL(ctx *fiber.Ctx) error {
-	url := c.authService.GetGoogleAuthURL()
-
-	return ctx.JSON(fiber.Map{
-		"url": url,
-	})
+	url := c.auth.GetGoogleAuthURL()
+	return ctx.JSON(fiber.Map{"url": url})
 }
 
-// HandleGoogleCallback processes the OAuth callback from Google
+// HandleGoogleCallback processes the OAuth callback
 func (c *AuthController) HandleGoogleCallback(ctx *fiber.Ctx) error {
 	code := ctx.Query("code")
 	if code == "" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Authorization code is required",
-		})
+		return ctx.Status(400).JSON(fiber.Map{"error": "Authorization code required"})
 	}
 
-	user, tokens, err := c.authService.HandleGoogleCallback(ctx.Context(), code)
+	user, tokens, err := c.auth.HandleGoogleCallback(ctx.Context(), code)
 	if err != nil {
-		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return ctx.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+	return ctx.JSON(fiber.Map{
 		"user":         user,
 		"accessToken":  tokens.AccessToken,
 		"refreshToken": tokens.RefreshToken,
-		"tokenType":    tokens.TokenType,
-		"expiresIn":    tokens.ExpiresIn,
 	})
 }
 
-// RefreshToken refreshes an access token using a refresh token
+// RefreshToken refreshes an access token
 func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
-	// Parse request body
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
 	}
 
-	if err := ctx.BodyParser(&req); err != nil {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request format",
-		})
+	if err := ctx.BodyParser(&req); err != nil || req.RefreshToken == "" {
+		return ctx.Status(400).JSON(fiber.Map{"error": "Refresh token is required"})
 	}
 
-	// Validate input
-	if req.RefreshToken == "" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Refresh token is required",
-		})
-	}
-
-	// Refresh token
-	tokens, err := c.authService.RefreshToken(req.RefreshToken)
+	tokens, err := c.auth.RefreshToken(req.RefreshToken)
 	if err != nil {
-		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": "Invalid refresh token",
-		})
+		return ctx.Status(401).JSON(fiber.Map{"error": "Invalid refresh token"})
 	}
 
-	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+	return ctx.JSON(fiber.Map{
 		"accessToken":  tokens.AccessToken,
 		"refreshToken": tokens.RefreshToken,
 		"tokenType":    tokens.TokenType,
