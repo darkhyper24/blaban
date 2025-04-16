@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/authContext';
 
 const SignupForm: React.FC = () => {
@@ -9,6 +10,7 @@ const SignupForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   
   const { signUp, loginWithGoogle } = useAuth();
+  const navigate = useNavigate(); // Add this hook
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -17,7 +19,8 @@ const SignupForm: React.FC = () => {
     
     try {
       await signUp(email, password, name);
-      // Redirect or update UI as needed
+      // Navigate to login page after successful signup
+      navigate('/login');
     } catch (err: any) {
       setError(err.message || 'Failed to sign up');
     } finally {
@@ -40,6 +43,7 @@ const SignupForm: React.FC = () => {
       {error && <div className="error-message">{error}</div>}
       
       <form onSubmit={handleSubmit}>
+        {/* Form fields remain the same */}
         <div className="form-group">
           <label htmlFor="name">Name</label>
           <input
@@ -88,7 +92,7 @@ const SignupForm: React.FC = () => {
       
       <div className="form-footer">
         <p>
-          Already have an account? <a href="/login">Login</a>
+          Already have an account? <Link to="/login">Login</Link>
         </p>
       </div>
     </div>

@@ -1,29 +1,38 @@
-// src/components/NavBar.tsx
-import { Link } from 'react-router-dom';
+import React from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/authContext';
+import '../styles/navbar.css';
 
-export default function NavBar() {
-  const { isAuthenticated, logout } = useAuth();
-  
+const NavBar: React.FC = () => {
+  const { user, isAuthenticated, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
   return (
     <nav className="navbar">
-      <div className="logo">
-        <Link to="/">Blaban</Link>
+      <div className="navbar-brand">
+        <Link to="/" className="navbar-title">Blaban</Link>
       </div>
-      
-      <div className="nav-links">
+      <div className="navbar-menu">
         {isAuthenticated ? (
           <>
-            <Link to="/profile">My Profile</Link>
-            <button onClick={logout}>Logout</button>
+            <span className="welcome-text">Welcome, {user?.name}</span>
+            <button onClick={handleLogout} className="auth-button logout-button">
+              Logout
+            </button>
           </>
         ) : (
-          <>
-            <Link to="/login">Login</Link>
-            <Link to="/signup">Sign Up</Link>
-          </>
+          <Link to="/login" className="auth-button login-button">
+            Login
+          </Link>
         )}
       </div>
     </nav>
   );
-}
+};
+
+export default NavBar;
