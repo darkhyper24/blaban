@@ -1,5 +1,6 @@
 import React from 'react';
 import SignupForm from '../components/signupForm';
+import '../styles/Auth.css';
 
 const SignupPage: React.FC = () => {
   return (

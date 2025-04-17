@@ -4,6 +4,7 @@ import NavBar from './components/navbar';
 import Home from './pages/home';
 import LoginPage from './pages/login';
 import SignupPage from './pages/signup';
+import CategoryItems from './pages/CategoryItems';
 
 // Layout component that includes navbar for routes that need it
 const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -22,6 +23,13 @@ function App() {
           <Route path="/" element={
             <MainLayout>
               <Home />
+            </MainLayout>
+          } />
+          
+          {/* Category items page with navbar */}
+          <Route path="/category/:categoryId" element={
+            <MainLayout>
+              <CategoryItems />
             </MainLayout>
           } />
           

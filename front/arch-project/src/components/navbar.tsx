@@ -15,7 +15,9 @@ const NavBar: React.FC = () => {
   return (
     <nav className="navbar">
       <div className="navbar-brand">
-        <Link to="/" className="navbar-title">Blaban</Link>
+        <Link to="/" className="navbar-logo-link">
+          <img src="/src/assets/blabanlogo.png" alt="Blaban Logo" className="navbar-logo" />
+        </Link>
       </div>
       <div className="navbar-menu">
         {isAuthenticated ? (

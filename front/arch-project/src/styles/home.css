@@ -1,0 +1,50 @@
+.home-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 90px 20px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.welcome-section {
+  text-align: center;
+  margin-bottom: 40px;
+  width: 100%;
+}
+
+.welcome-section h1 {
+  color: #0066b2;
+  font-size: 2.5rem;
+  margin-bottom: 10px;
+}
+
+.welcome-section p {
+  color: #555;
+  font-size: 1.2rem;
+}
+
+.categories-container {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 20px;
+  width: 100%;
+  justify-content: center;
+  overflow-x: auto;
+  padding: 10px 0 20px 0;
+}
+
+@media (max-width: 768px) {
+  .categories-container {
+    justify-content: flex-start;
+    padding-bottom: 15px;
+  }
+}
+
+@media (max-width: 480px) {
+  .categories-container {
+    padding-bottom: 10px;
+  }
+}
