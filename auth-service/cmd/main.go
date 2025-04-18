@@ -145,8 +145,7 @@ func handleGoogleCallback(c *fiber.Ctx) error {
 			"error": "Failed to store refresh token",
 		})
 	}
-
-	return c.JSON(fiber.Map{
+	responseData := fiber.Map{
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"token_type":    "bearer",
@@ -154,7 +153,17 @@ func handleGoogleCallback(c *fiber.Ctx) error {
 			"id":    googleUser.ID,
 			"email": googleUser.Email,
 		},
-	})
+	}
+
+	// Log the response data
+	jsonBytes, err := json.MarshalIndent(responseData, "", "  ")
+	if err != nil {
+		log.Printf("Error marshaling response: %v", err)
+	} else {
+		log.Printf("Auth response data:\n%s", string(jsonBytes))
+	}
+
+	return c.Redirect("http://localhost:5173", fiber.StatusSeeOther)
 }
 
 func handleRefreshToken(c *fiber.Ctx) error {
