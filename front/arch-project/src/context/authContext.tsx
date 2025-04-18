@@ -80,13 +80,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginWithGoogle = async () => {
-    try {
-      const url = await authApi.getGoogleAuthUrl();
-      window.location.href = url;
-    } catch (error) {
-      throw error;
-    }
-  };
+  try {
+    await authApi.getGoogleAuthUrl();
+    // No need to do anything after this as the redirect will happen automatically
+  } catch (error) {
+    console.error('Failed to initialize Google login:', error);
+    // Show error to user
+  }
+};
 
   const logout = () => {
     localStorage.removeItem('accessToken');

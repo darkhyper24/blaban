@@ -37,7 +37,7 @@ export interface RefreshTokenRequest {
 const authApi = {
   // Sign up with email and password
   signUp: async (data: SignUpRequest): Promise<AuthResponse> => {
-    const response = await fetch(`${apiConfig.baseUrl}/auth/signup`, {
+    const response = await fetch(`${apiConfig.baseUrl}/users/signup`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -55,7 +55,7 @@ const authApi = {
 
   // Login with email and password
   login: async (data: LoginRequest): Promise<AuthResponse> => {
-    const response = await fetch(`${apiConfig.baseUrl}/auth/login`, {
+    const response = await fetch(`${apiConfig.baseUrl}/users/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -71,17 +71,35 @@ const authApi = {
     return response.json();
   },
 
-  // Get Google OAuth URL
-  getGoogleAuthUrl: async (): Promise<string> => {
-    const response = await fetch(`${apiConfig.baseUrl}/auth/google`);
-    
-    if (!response.ok) {
-      throw new Error('Failed to get Google auth URL');
+  getGoogleAuthUrl: async (): Promise<void> => {  // Changed return type to void
+    try {
+      const response = await fetch(`${apiConfig.authUrl}/google/login`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Origin': window.location.origin
+        },
+        // Don't follow redirects automatically
+        redirect: 'manual'
+      });
+      
+      // Check if it's a redirect response
+      if (response.status === 302 || response.type === 'opaqueredirect') {
+        const redirectUrl = response.headers.get('Location') || response.url;
+        window.location.href = redirectUrl;
+        return;
+      }
+
+      if (!response.ok) {
+        console.error('Google auth error:', response.status, response.statusText);
+        throw new Error('Failed to get Google auth URL');
+      }
+    } catch (error) {
+      console.error('Google auth error:', error);
+      throw error;
     }
-    
-    const data = await response.json();
-    return data.url;
   },
+
 
   // Refresh tokens
   refreshToken: async (refreshToken: string): Promise<AuthResponse> => {
