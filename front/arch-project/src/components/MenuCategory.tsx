@@ -2,16 +2,22 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/MenuCategory.css';
 
+// Adjusted to match the API response structure
 export interface MenuItem {
-  id: number;
+  id: string | number;
   name: string;
   price: number;
+  effective_price?: number;
+  is_available?: boolean;
+  quantity?: number;
+  has_discount?: boolean;
+  discount_value?: number;
   description?: string;
   image?: string;
 }
 
 export interface MenuCategoryProps {
-  id: number;
+  id: string | number;
   name: string;
   items: MenuItem[];
   icon?: string;

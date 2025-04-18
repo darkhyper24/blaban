@@ -100,23 +100,6 @@ const authApi = {
     }
   },
 
-
-  // Refresh tokens
-  refreshToken: async (refreshToken: string): Promise<AuthResponse> => {
-    const response = await fetch(`${apiConfig.baseUrl}/auth/refresh`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to refresh token');
-    }
-
-    return response.json();
-  },
 };
 
 export default authApi;
