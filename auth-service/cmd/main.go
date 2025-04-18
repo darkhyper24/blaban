@@ -75,6 +75,7 @@ func main() {
 	app.Get("/api/auth/google/callback", handleGoogleCallback)
 	app.Post("/api/auth/refresh", handleRefreshToken)
 	app.Get("/api/auth/verify", handleVerifyToken)
+	app.Post("/api/auth/logout", handleLogout)
 
 	log.Fatal(app.Listen(":8082"))
 }
@@ -263,5 +264,26 @@ func handleUserRegistration(c *fiber.Ctx) error {
 		"refresh_token": refreshToken,
 		"token_type":    "bearer",
 		"expires_in":    900, // 15 minutes in seconds
+	})
+}
+
+func handleLogout(c *fiber.Ctx) error {
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+	if err := tokenService.RevokeRefreshToken(req.RefreshToken); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to revoke refresh token",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Successfully logged out",
 	})
 }

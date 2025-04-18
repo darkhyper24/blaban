@@ -141,6 +141,41 @@ func main() {
 		})
 	})
 
+	app.Post("/api/users/logout", func(c *fiber.Ctx) error {
+		var req struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+
+		if err := c.BodyParser(&req); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid request body",
+			})
+		}
+
+		// Call auth service to revoke token
+		authResp, err := http.Post(
+			"http://localhost:8082/api/auth/logout",
+			"application/json",
+			strings.NewReader(fmt.Sprintf(`{"refresh_token":"%s"}`, req.RefreshToken)),
+		)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Authentication service unavailable",
+			})
+		}
+		defer authResp.Body.Close()
+
+		if authResp.StatusCode != http.StatusOK {
+			return c.Status(authResp.StatusCode).JSON(fiber.Map{
+				"error": "Failed to logout",
+			})
+		}
+
+		return c.JSON(fiber.Map{
+			"message": "Successfully logged out",
+		})
+	})
+
 	app.Get("/api/users/profile", handleGetProfile)
 	app.Put("/api/users/profile", handleUpdateProfile)
 
