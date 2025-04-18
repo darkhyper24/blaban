@@ -206,8 +206,193 @@ The discount is successfully applied to the selected menu item, and the item is 
 ---
 
 
+## Back-of-the-Envelope Calculations
 
+### 1. Traffic and User Estimation
 
+**Assumptions:**
+
+- **Concurrent Users:** \~100 concurrent users at peak
+- **Daily Active Users (DAU):** 500 users/day
+- **Peak Hour Users:** 100 (20% of DAU)
+
+<table>
+  <thead>
+    <tr>
+      <th>Request Type</th>
+      <th>Calculation</th>
+      <th>Daily Estimate</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Menu Browsing</td>
+      <td>500 users × 10 requests/user</td>
+      <td>5,000 requests</td>
+    </tr>
+    <tr>
+      <td>Order Placements</td>
+      <td>500 users × 50%</td>
+      <td>250 orders</td>
+    </tr>
+    <tr>
+      <td>Order Tracking</td>
+      <td>250 orders × 2 requests/order</td>
+      <td>500 requests</td>
+    </tr>
+  </tbody>
+</table>
+
+**Total Requests/day:** 5,750
+
+### 2. Data Storage Estimation
+
+<table>
+  <thead>
+    <tr>
+      <th>Data Type</th>
+      <th>Calculation</th>
+      <th>Annual Storage</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>User Data</td>
+      <td>2,000 users × 0.5 KB</td>
+      <td>1 MB</td>
+    </tr>
+    <tr>
+      <td>Order Data</td>
+      <td>250 orders/day × 2 KB × 365 days</td>
+      <td>178 MB</td>
+    </tr>
+    <tr>
+      <td>Review Data</td>
+      <td>125 reviews/day × 0.5 KB × 365 days</td>
+      <td>22.8 MB</td>
+    </tr>
+  </tbody>
+</table>
+
+**Total Estimated Storage:** \~202 MB/year
+
+### 3. Network Bandwidth
+
+<table>
+  <thead>
+    <tr>
+      <th>Metric</th>
+      <th>Calculation</th>
+      <th>Daily Estimate</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Peak Hour Data Transfer</td>
+      <td>1,000 requests × 1 KB</td>
+      <td>1 MB/hour</td>
+    </tr>
+    <tr>
+      <td>Daily Data Transfer</td>
+      <td>5,750 requests × 1 KB</td>
+      <td>5.75 MB/day</td>
+    </tr>
+  </tbody>
+</table>
+
+### 4. Database Performance (PostgreSQL)
+
+- **Transactions per second (TPS):** \~2,500 TPS
+- **Max Daily DB Queries:** 5,750 queries/day (\~0.07 TPS average)
+
+<table>
+  <thead>
+    <tr>
+      <th>Scenario</th>
+      <th>Calculation</th>
+      <th>Estimate</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Peak Queries (TPS during peak)</td>
+      <td>1,000 requests/hour ÷ 3,600 sec/hour</td>
+      <td>~0.28 TPS</td>
+    </tr>
+    <tr>
+      <td>DB Connection Pool</td>
+      <td>100 concurrent users × 1 connection/user</td>
+      <td>100 connections (PostgreSQL default max)</td>
+    </tr>
+  </tbody>
+</table>
+
+**Mitigation:**
+
+- Set connection pooling (PgBouncer) limit to handle \~200 connections for overhead (\~2× expected peak).
+
+### 5. Caching Strategy (Redis)
+
+<table>
+  <thead>
+    <tr>
+      <th>Data Cached</th>
+      <th>Calculation</th>
+      <th>Cache Size</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Menu Items</td>
+      <td>200 items × 2 KB/item</td>
+      <td>400 KB</td>
+    </tr>
+    <tr>
+      <td>Order Statuses</td>
+      <td>250 active orders × 1 KB/order</td>
+      <td>250 KB</td>
+    </tr>
+  </tbody>
+</table>
+
+**Total Cache Size:** 650 KB
+
+- **Throughput:** Redis capable of \~100,000 GET requests/sec.
+- **Target Cache Hit Rate:** >90%
+
+### 6. Failure Accommodations (with Calculations)
+
+<table>
+  <thead>
+    <tr>
+      <th>Failure Scenario</th>
+      <th>Calculation/Metric</th>
+      <th>Accommodation Strategy</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Database Downtime</td>
+      <td>Recovery Time Objective (RTO): &lt;1 hour</td>
+      <td>Regular backups every hour</td>
+    </tr>
+    <tr>
+      <td>Cache Failure (Redis)</td>
+      <td>Cache Reload Time: &lt;5 min; Data size: 650 KB at 1 MB/sec</td>
+      <td>Full reload in ~1 sec</td>
+    </tr>
+    <tr>
+      <td>Network Latency Spike</td>
+      <td>Maximum acceptable latency: &lt;200 ms</td>
+      <td>Automatic health checks/retries</td>
+    </tr>
+    <tr>
+      <td>Server Crash</td>
+      <td>Mean Time to Recover (MTTR): &lt;15 min</td>
+      <td>Docker auto-restart policy enabled</td>
+    </tr>
+  </tbody>
+</table>
 
 
 ## 5. System ADRs
