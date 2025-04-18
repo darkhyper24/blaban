@@ -27,14 +27,8 @@ func init() {
 }
 
 var (
-	googleOauthConfig = &oauth2.Config{
-		RedirectURL:  "http://localhost:8082/api/auth/google/callback",
-		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-		Scopes:       []string{"https://www.googleapis.com/auth/userinfo.email"},
-		Endpoint:     google.Endpoint,
-	}
-	tokenService *tokens.TokenService
+	googleOauthConfig *oauth2.Config
+	tokenService      *tokens.TokenService
 )
 
 type GoogleUser struct {
@@ -44,6 +38,9 @@ type GoogleUser struct {
 }
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Printf("Warning: .env file not found")
+	}
 
 	// Initialize database connection
 	dsn := os.Getenv("AUTH_DB_DSN")
@@ -57,6 +54,17 @@ func main() {
 	}
 	defer database.Close()
 
+	googleOauthConfig = &oauth2.Config{
+		RedirectURL:  "http://localhost:8082/api/auth/google/callback",
+		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		Scopes: []string{
+			"https://www.googleapis.com/auth/userinfo.email",
+			"https://www.googleapis.com/auth/userinfo.profile",
+		},
+		Endpoint: google.Endpoint,
+	}
+
 	// Initialize token service
 	tokenService = tokens.NewTokenService(
 		database,
@@ -66,7 +74,11 @@ func main() {
 	)
 
 	app := fiber.New()
-	app.Use(cors.New())
+	app.Use(cors.New(cors.Config{
+		AllowOrigins:     "http://localhost:5173", //local frontend server
+		AllowHeaders:     "Origin, Content-Type, Accept",
+		AllowCredentials: true,
+	}))
 	app.Use(logger.New())
 
 	// Auth routes

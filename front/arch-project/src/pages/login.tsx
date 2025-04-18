@@ -1,6 +1,6 @@
 import React from 'react';
 import LoginForm from '../components/loginForm';
-import '../styles/Auth.css';
+import '../styles/auth.css';
 
 const LoginPage: React.FC = () => {
   return (

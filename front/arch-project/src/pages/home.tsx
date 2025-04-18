@@ -1,7 +1,7 @@
 import React from 'react';
 import { MenuCategoryProps } from '../components/MenuCategory';
 import MenuCategory from '../components/MenuCategory';
-import '../styles/Home.css';
+import '../styles/home.css';
 
 // Import images from assets
 import qashtouta from '../assets/2a4tota.PNG';
