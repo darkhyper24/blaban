@@ -14,7 +14,7 @@ type MenuItem struct {
 // GetEffectivePrice returns the price after applying any discount
 func (m *MenuItem) GetEffectivePrice() float64 {
 	if m.HasDiscount {
-		return m.Price * (1 - m.DiscountValue)
+		return m.Price * (1 - m.DiscountValue/100)
 	}
 	return m.Price
 }
