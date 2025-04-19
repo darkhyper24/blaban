@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 
@@ -30,12 +31,23 @@ func main() {
 		options.Client().ApplyURI("mongodb://localhost:27017"),
 	)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
-	defer client.Disconnect(context.Background())
+	defer func() {
+		if err := client.Disconnect(context.Background()); err != nil {
+			log.Printf("Failed to disconnect from MongoDB: %v", err)
+		}
+	}()
+
+	// Ping the database to verify connection
+	err = client.Ping(context.Background(), nil)
+	if err != nil {
+		log.Fatalf("Failed to ping MongoDB: %v", err)
+	}
 
 	// Initialize order service
-	collection := client.Database("orderdb").Collection("orders")
+	db := client.Database("orderdb")
+	collection := db.Collection("orders")
 	orderService = orders.NewOrderService(collection)
 
 	// Order routes
@@ -43,6 +55,12 @@ func main() {
 	app.Get("/api/orders/:id", handleGetOrder)
 	app.Post("/api/orders", handleCreateOrder)
 
+	// Test route to check if the service is running
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "OK"})
+	})
+
+	log.Println("Order service started on port 8084")
 	log.Fatal(app.Listen(":8084"))
 }
 
@@ -57,12 +75,18 @@ func handleGetOrders(c *fiber.Ctx) error {
 	orders, err := orderService.GetOrders(c.Context(), userID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to fetch orders",
+			"error": "Failed to fetch orders: " + err.Error(),
 		})
+	}
+
+	// Return an empty array instead of null if no orders found
+	if orders == nil {
+		orders = make([]models.Order, 0)
 	}
 
 	return c.JSON(fiber.Map{
 		"orders": orders,
+		"count":  len(orders),
 	})
 }
 
@@ -83,7 +107,7 @@ func handleGetOrder(c *fiber.Ctx) error {
 			})
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to fetch order",
+			"error": "Failed to fetch order: " + err.Error(),
 		})
 	}
 
@@ -131,22 +155,46 @@ func handleCreateOrder(c *fiber.Ctx) error {
 
 // Helper function to validate menu items
 func getMenuItem(itemID string) (*models.OrderItem, error) {
-	resp, err := http.Get(fmt.Sprintf("http://localhost:8083/api/menu/items/%s", itemID))
+	menuURL := fmt.Sprintf("http://localhost:8083/api/menu/%s", itemID)
+	resp, err := http.Get(menuURL)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("menu item not found")
+		return nil, fmt.Errorf("menu item not found (status: %d)", resp.StatusCode)
 	}
 
-	var menuItem models.OrderItem
-	if err := json.NewDecoder(resp.Body).Decode(&menuItem); err != nil {
+	var response struct {
+		Item struct {
+			ID             string  `json:"id"`
+			Name           string  `json:"name"`
+			Price          float64 `json:"price"`
+			EffectivePrice float64 `json:"effective_price"`
+		} `json:"item"`
+	}
+
+	responseBody, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, readErr
+	}
+
+	if err := json.Unmarshal(responseBody, &response); err != nil {
 		return nil, err
 	}
 
-	return &menuItem, nil
+	// Use effective price if item has a discount
+	price := response.Item.Price
+	if response.Item.EffectivePrice > 0 && response.Item.EffectivePrice < price {
+		price = response.Item.EffectivePrice
+	}
+
+	return &models.OrderItem{
+		ItemID: response.Item.ID,
+		Name:   response.Item.Name,
+		Price:  price,
+	}, nil
 }
 
 func verifyToken(authHeader string) (string, error) {

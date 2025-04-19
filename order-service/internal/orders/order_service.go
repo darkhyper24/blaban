@@ -19,7 +19,13 @@ func NewOrderService(collection *mongo.Collection) *OrderService {
 }
 
 func (s *OrderService) GetOrders(ctx context.Context, userID string) ([]models.Order, error) {
-	cursor, err := s.collection.Find(ctx, bson.M{"user_id": userID})
+	filter := bson.M{}
+	// Only filter by user ID if it's provided
+	if userID != "" {
+		filter["user_id"] = userID
+	}
+
+	cursor, err := s.collection.Find(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -35,11 +41,14 @@ func (s *OrderService) GetOrders(ctx context.Context, userID string) ([]models.O
 
 func (s *OrderService) GetOrder(ctx context.Context, id string, userID string) (*models.Order, error) {
 	var order models.Order
-	err := s.collection.FindOne(ctx, bson.M{
-		"id":      id,
-		"user_id": userID,
-	}).Decode(&order)
+	filter := bson.M{"id": id}
 
+	// Only filter by user ID if it's provided
+	if userID != "" {
+		filter["user_id"] = userID
+	}
+
+	err := s.collection.FindOne(ctx, filter).Decode(&order)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +66,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *models.Order) err
 	// Calculate total
 	var total float64
 	for _, item := range order.Items {
-		item.ItemID = uuid.NewString()
+		// Don't overwrite the original item ID
 		total += item.Price * float64(item.Quantity)
 	}
 	order.Total = total
