@@ -33,8 +33,15 @@ export interface RefreshTokenRequest {
   refresh_token: string;
 }
 
+export interface AuthApi {
+  signUp: (data: SignUpRequest) => Promise<AuthResponse>;
+  login: (data: LoginRequest) => Promise<AuthResponse>;
+  getGoogleAuthUrl: () => Promise<void>;
+  refreshToken: (token: string) => Promise<AuthResponse>;
+}
+
 // API Client
-const authApi = {
+const authApi: AuthApi = {
   // Sign up with email and password
   signUp: async (data: SignUpRequest): Promise<AuthResponse> => {
     const response = await fetch(`${apiConfig.baseUrl}/users/signup`, {
@@ -100,6 +107,21 @@ const authApi = {
     }
   },
 
+  refreshToken: async (token: string): Promise<AuthResponse> => {
+    const response = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refreshToken: token }),
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to refresh token');
+    }
+    
+    return response.json();
+  }
 };
 
 export default authApi;
