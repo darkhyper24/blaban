@@ -89,6 +89,11 @@ func main() {
 	app.Get("/api/auth/verify", handleVerifyToken)
 	app.Post("/api/auth/logout", handleLogout)
 
+	// Health check route
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "ok"})
+	})
+
 	log.Fatal(app.Listen(":8082"))
 }
 

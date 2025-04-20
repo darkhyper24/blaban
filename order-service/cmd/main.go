@@ -60,6 +60,10 @@ func main() {
 		return c.JSON(fiber.Map{"status": "OK"})
 	})
 
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "ok"})
+	})
+
 	log.Println("Order service started on port 8084")
 	log.Fatal(app.Listen(":8084"))
 }

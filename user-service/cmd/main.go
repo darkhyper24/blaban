@@ -179,6 +179,10 @@ func main() {
 	app.Get("/api/users/profile", handleGetProfile)
 	app.Put("/api/users/profile", handleUpdateProfile)
 
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "ok"})
+	})
+
 	log.Fatal(app.Listen(":8081"))
 }
 

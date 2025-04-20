@@ -32,6 +32,10 @@ func main() {
 	app.Post("/api/payments/webhook", handlePaymentWebhook)
 	app.Get("/api/payments/order/:orderId", handleGetPaymentByOrder)
 
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "ok"})
+	})
+
 	log.Fatal(app.Listen(":8085"))
 }
 

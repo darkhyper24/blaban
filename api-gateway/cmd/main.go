@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -16,6 +17,66 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 )
+
+type CircuitBreaker struct {
+	failureThreshold int
+	resetTimeout     time.Duration
+	failures         int
+	lastFailure      time.Time
+	state            string
+	mutex            sync.RWMutex
+}
+
+func NewCircuitBreaker(threshold int, timeout time.Duration) *CircuitBreaker {
+	return &CircuitBreaker{
+		failureThreshold: threshold,
+		resetTimeout:     timeout,
+		failures:         0,
+		state:            "closed",
+	}
+}
+
+func (cb *CircuitBreaker) AllowRequest() bool {
+	cb.mutex.RLock()
+	defer cb.mutex.RUnlock()
+
+	if cb.state == "open" {
+		if time.Since(cb.lastFailure) > cb.resetTimeout {
+			cb.mutex.RUnlock()
+			cb.mutex.Lock()
+			cb.state = "half-open"
+			cb.mutex.Unlock()
+			cb.mutex.RLock()
+			return true
+		}
+		return false
+	}
+	return true
+}
+
+func (cb *CircuitBreaker) RecordSuccess() {
+	cb.mutex.Lock()
+	defer cb.mutex.Unlock()
+
+	if cb.state == "half-open" {
+		cb.state = "closed"
+		cb.failures = 0
+	}
+}
+
+func (cb *CircuitBreaker) RecordFailure() {
+	cb.mutex.Lock()
+	defer cb.mutex.Unlock()
+
+	cb.failures++
+	cb.lastFailure = time.Now()
+
+	if cb.failures >= cb.failureThreshold {
+		cb.state = "open"
+	}
+}
+
+var serviceCircuitBreakers = make(map[string]*CircuitBreaker)
 
 func main() {
 	app := fiber.New(fiber.Config{
@@ -29,12 +90,11 @@ func main() {
 	app.Use(cors.New())
 	app.Use(logger.New())
 	app.Use(recover.New())
-	// rate limiter b2a w keda
 	app.Use(limiter.New(limiter.Config{
 		Max:        100,
 		Expiration: 1 * time.Minute,
 		KeyGenerator: func(c *fiber.Ctx) string {
-			return c.IP() // we're rate limiting by IP address
+			return c.IP()
 		},
 		LimitReached: func(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
@@ -43,26 +103,55 @@ func main() {
 		},
 	}))
 
+	// Initialize circuit breakers for all services
+	initCircuitBreakers()
+
 	setupRoutes(app)
 
 	log.Fatal(app.Listen("0.0.0.0:8080"))
 }
 
+func initCircuitBreakers() {
+	services := []string{"user-service", "auth-service", "menu-service", "order-service", "payment-service", "review-service"}
+	for _, service := range services {
+		serviceCircuitBreakers[service] = NewCircuitBreaker(3, 30*time.Second)
+	}
+}
+
 func setupRoutes(app *fiber.App) {
-	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"status": "ok",
-		})
-	})
+	app.Get("/health", healthCheck)
 
 	api := app.Group("/api")
 
-	api.All("/users/*", createServiceProxy("user-service", 3001))
-	api.All("/auth/*", createServiceProxy("auth-service", 3002))
-	api.All("/menu/*", createServiceProxy("menu-service", 3003))
-	api.All("/orders/*", createServiceProxy("order-service", 3004))
-	api.All("/payments/*", createServiceProxy("payment-service", 3005))
-	api.All("/reviews/*", createServiceProxy("review-service", 3006))
+	api.All("/users/*", createServiceProxy("user-service", 8081))
+	api.All("/auth/*", createServiceProxy("auth-service", 8082))
+	api.All("/menu/*", createServiceProxy("menu-service", 8083))
+	api.All("/orders/*", createServiceProxy("order-service", 8084))
+	api.All("/payments/*", createServiceProxy("payment-service", 8085))
+	api.All("/reviews/*", createServiceProxy("review-service", 8086))
+}
+
+func healthCheck(c *fiber.Ctx) error {
+	health := map[string]string{"api_gateway": "ok"}
+
+	services := []string{"user-service", "auth-service", "menu-service", "order-service", "payment-service", "review-service"}
+	for _, service := range services {
+		serviceURL := os.Getenv(strings.ToUpper(service) + "_URL")
+		if serviceURL == "" {
+			health[service] = "unknown"
+			continue
+		}
+
+		client := &http.Client{Timeout: 2 * time.Second}
+		_, err := client.Get(serviceURL + "/health")
+		if err != nil {
+			health[service] = "unavailable"
+		} else {
+			health[service] = "ok"
+		}
+	}
+
+	return c.Status(fiber.StatusOK).JSON(health)
 }
 
 func createServiceProxy(service string, port int) fiber.Handler {
@@ -70,17 +159,55 @@ func createServiceProxy(service string, port int) fiber.Handler {
 		Timeout: time.Second * 10,
 	}
 
+	cb := serviceCircuitBreakers[service]
+
 	return func(c *fiber.Ctx) error {
-		// get service URL from environment variable
+		if !cb.AllowRequest() {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+				"error": fmt.Sprintf("%s is temporarily unavailable", service),
+			})
+		}
+
 		serviceURL := os.Getenv(strings.ToUpper(service) + "_URL")
 		if serviceURL == "" {
-			// fallback to local development
 			serviceURL = fmt.Sprintf("http://%s:%d", service, port)
 		}
 
-		// build the target URL
-		path := strings.TrimPrefix(c.Path(), "/api"+"/"+strings.Split(service, "-")[0])
-		targetURL := serviceURL + path
+		originalPath := c.Path()
+		var strippedPath string
+
+		switch {
+		case strings.HasPrefix(originalPath, "/api/users/"):
+			strippedPath = strings.TrimPrefix(originalPath, "/api/users")
+		case strings.HasPrefix(originalPath, "/api/auth/"):
+			strippedPath = strings.TrimPrefix(originalPath, "/api/auth")
+		case strings.HasPrefix(originalPath, "/api/menu/"):
+			strippedPath = strings.TrimPrefix(originalPath, "/api/menu")
+		case strings.HasPrefix(originalPath, "/api/orders/"):
+			strippedPath = strings.TrimPrefix(originalPath, "/api/orders")
+		case strings.HasPrefix(originalPath, "/api/payments/"):
+			strippedPath = strings.TrimPrefix(originalPath, "/api/payments")
+		case strings.HasPrefix(originalPath, "/api/reviews/"):
+			strippedPath = strings.TrimPrefix(originalPath, "/api/reviews")
+		default:
+			// 3ashan el health checks and other paths
+			parts := strings.Split(originalPath, "/")
+			if len(parts) >= 3 {
+				strippedPath = "/" + strings.Join(parts[3:], "/")
+			} else {
+				strippedPath = "/"
+			}
+		}
+
+		if strippedPath == "" || strippedPath[0] != '/' {
+			strippedPath = "/" + strippedPath
+		}
+
+		// the final target URL
+		targetURL := serviceURL + strippedPath
+
+		// debug logging
+		log.Printf("Forwarding request: %s %s -> %s", c.Method(), originalPath, targetURL)
 
 		// create a new request
 		req, err := http.NewRequest(c.Method(), targetURL, bytes.NewReader(c.Body()))
@@ -91,23 +218,50 @@ func createServiceProxy(service string, port int) fiber.Handler {
 			})
 		}
 
-		// copy headers
+		// copying headers
 		for key, values := range c.GetReqHeaders() {
 			for _, value := range values {
 				req.Header.Add(key, value)
 			}
 		}
 
-		// execute the request
-		resp, err := client.Do(req)
+		// executing the request with retries
+		var resp *http.Response
+		var retryCount int = 0
+		maxRetries := 2
+
+		for retryCount <= maxRetries {
+			resp, err = client.Do(req)
+			if err == nil {
+				break
+			}
+
+			retryCount++
+			if retryCount <= maxRetries {
+				log.Printf("Retry %d for %s: %v", retryCount, service, err)
+				time.Sleep(time.Duration(retryCount*200) * time.Millisecond)
+				// need to create a new request with body for retry
+				req, _ = http.NewRequest(c.Method(), targetURL, bytes.NewReader(c.Body()))
+				for key, values := range c.GetReqHeaders() {
+					for _, value := range values {
+						req.Header.Add(key, value)
+					}
+				}
+			}
+		}
+
 		if err != nil {
-			// implement circuit breaker pattern
-			log.Printf("Service %s is unreachable: %v", service, err)
+			// record failure in circuit breaker
+			cb.RecordFailure()
+			log.Printf("Service %s is unreachable after %d retries: %v", service, retryCount, err)
 			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 				"error": "Service temporarily unavailable",
 			})
 		}
 		defer resp.Body.Close()
+
+		// record success in circuit breaker
+		cb.RecordSuccess()
 
 		// read response body
 		body, err := io.ReadAll(resp.Body)

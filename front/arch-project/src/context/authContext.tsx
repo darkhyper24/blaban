@@ -24,12 +24,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const checkAuth = async () => {
       const accessToken = localStorage.getItem('accessToken');
       const refreshToken = localStorage.getItem('refreshToken');
-      
+
       if (!accessToken || !refreshToken) {
         setIsLoading(false);
         return;
       }
-      
+
       try {
         // If we have a valid refresh token, use it to get a new access token
         const response = await authApi.refreshToken(refreshToken);
@@ -44,7 +44,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsLoading(false);
       }
     };
-    
+
     checkAuth();
   }, []);
 
@@ -80,14 +80,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginWithGoogle = async () => {
-  try {
-    await authApi.getGoogleAuthUrl();
-    // No need to do anything after this as the redirect will happen automatically
-  } catch (error) {
-    console.error('Failed to initialize Google login:', error);
-    // Show error to user
-  }
-};
+    try {
+      await authApi.getGoogleAuthUrl();
+      // No need to do anything after this as the redirect will happen automatically
+    } catch (error) {
+      console.error('Failed to initialize Google login:', error);
+      // Show error to user
+    }
+  };
 
   const logout = () => {
     localStorage.removeItem('accessToken');
