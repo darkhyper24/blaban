@@ -94,16 +94,12 @@ func main() {
 		Max:        100,
 		Expiration: 1 * time.Minute,
 		KeyGenerator: func(c *fiber.Ctx) string {
-			return c.IP()
-		},
-		LimitReached: func(c *fiber.Ctx) error {
-			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
-				"error": "Rate limit exceeded",
-			})
+			ip := c.IP()
+			log.Printf("Request from IP: %s", ip)
+			return ip
 		},
 	}))
 
-	// Initialize circuit breakers for all services
 	initCircuitBreakers()
 
 	setupRoutes(app)
