@@ -7,6 +7,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/darkhyper24/blaban/order-service/internal/models"
 	"github.com/darkhyper24/blaban/order-service/internal/orders"
@@ -18,6 +21,8 @@ import (
 )
 
 var orderService *orders.OrderService
+var mqttPublisher *orders.MQTTPublisher
+var orderProcessor *orders.OrderProcessor
 
 func main() {
 	app := fiber.New()
@@ -45,27 +50,51 @@ func main() {
 		log.Fatalf("Failed to ping MongoDB: %v", err)
 	}
 
+	// Initialize MQTT publisher for notifications
+	mqttPublisher, err = orders.NewMQTTPublisher("tcp://localhost:1883")
+	if err != nil {
+		log.Printf("Warning: Failed to connect to MQTT broker: %v", err)
+		// Continue without MQTT publisher
+		mqttPublisher = nil
+	} else {
+		defer mqttPublisher.Close()
+	}
+
 	// Initialize order service
 	db := client.Database("orderdb")
 	collection := db.Collection("orders")
-	orderService = orders.NewOrderService(collection)
+	orderService = orders.NewOrderService(collection, mqttPublisher)
+
+	// Initialize and start the order processor for automatic status updates
+	orderProcessor = orders.NewOrderProcessor(orderService)
+	orderProcessor.Start()
+	defer orderProcessor.Stop()
 
 	// Order routes
 	app.Get("/api/orders", handleGetOrders)
 	app.Get("/api/orders/:id", handleGetOrder)
 	app.Post("/api/orders", handleCreateOrder)
+	app.Put("/api/orders/:id/status", handleUpdateOrderStatus) // New endpoint for status updates
 
 	// Test route to check if the service is running
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "OK"})
 	})
 
-	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok"})
-	})
+	// Run server in a goroutine so we can handle shutdown gracefully
+	go func() {
+		log.Println("Order service started on port 8084")
+		if err := app.Listen(":8084"); err != nil {
+			log.Fatalf("Failed to start server: %v", err)
+		}
+	}()
 
-	log.Println("Order service started on port 8084")
-	log.Fatal(app.Listen(":8084"))
+	// Wait for termination signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down server...")
 }
 
 func handleGetOrders(c *fiber.Ctx) error {
@@ -155,6 +184,41 @@ func handleCreateOrder(c *fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(order)
+}
+
+// New handler for updating order status
+func handleUpdateOrderStatus(c *fiber.Ctx) error {
+	// Admin authentication could be added here
+
+	orderID := c.Params("id")
+
+	var statusUpdate struct {
+		Status string `json:"status"`
+	}
+
+	if err := c.BodyParser(&statusUpdate); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	if statusUpdate.Status == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Status cannot be empty",
+		})
+	}
+
+	err := orderService.UpdateOrderStatus(c.Context(), orderID, statusUpdate.Status)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update order status: " + err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": fmt.Sprintf("Order %s status updated to %s", orderID, statusUpdate.Status),
+	})
 }
 
 // Helper function to validate menu items

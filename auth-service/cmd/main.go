@@ -45,7 +45,7 @@ func main() {
 	// Initialize database connection
 	dsn := os.Getenv("AUTH_DB_DSN")
 	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/authdb?sslmode=disable"
+		dsn = "postgres://postgres:admin@localhost:5432/authdb?sslmode=disable"
 	}
 
 	database, err := db.Connect(dsn)

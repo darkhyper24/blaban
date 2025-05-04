@@ -2,6 +2,7 @@ package orders
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/darkhyper24/blaban/order-service/internal/models"
@@ -12,10 +13,14 @@ import (
 
 type OrderService struct {
 	collection *mongo.Collection
+	publisher  *MQTTPublisher
 }
 
-func NewOrderService(collection *mongo.Collection) *OrderService {
-	return &OrderService{collection: collection}
+func NewOrderService(collection *mongo.Collection, publisher *MQTTPublisher) *OrderService {
+	return &OrderService{
+		collection: collection,
+		publisher:  publisher,
+	}
 }
 
 func (s *OrderService) GetOrders(ctx context.Context, userID string) ([]models.Order, error) {
@@ -72,5 +77,51 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *models.Order) err
 	order.Total = total
 
 	_, err := s.collection.InsertOne(ctx, order)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Publish order creation status
+	if s.publisher != nil {
+		message := fmt.Sprintf("Order #%s has been received and is pending", order.ID)
+		if err := s.publisher.PublishOrderStatus(order.ID, "pending", message); err != nil {
+			// Just log the error, don't fail the order creation
+			// since the notification is not critical to the order process
+			fmt.Printf("Failed to publish order status: %v\n", err)
+		}
+	}
+
+	return nil
+}
+
+// UpdateOrderStatus updates the status of an order and notifies via MQTT
+func (s *OrderService) UpdateOrderStatus(ctx context.Context, orderID string, status string) error {
+	filter := bson.M{"id": orderID}
+	update := bson.M{
+		"$set": bson.M{
+			"status":     status,
+			"updated_at": time.Now(),
+		},
+	}
+
+	// Update the order in the database
+	result, err := s.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return err
+	}
+
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("order not found: %s", orderID)
+	}
+
+	// Publish the status update
+	if s.publisher != nil {
+		message := fmt.Sprintf("Order #%s status updated to %s", orderID, status)
+		if err := s.publisher.PublishOrderStatus(orderID, status, message); err != nil {
+			// Just log the error but don't fail the update
+			fmt.Printf("Failed to publish order status update: %v\n", err)
+		}
+	}
+
+	return nil
 }
