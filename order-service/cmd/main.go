@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 
+	mqtt "github.com/eclipse/paho.mqtt.golang"
+
 	"github.com/darkhyper24/blaban/order-service/internal/models"
 	"github.com/darkhyper24/blaban/order-service/internal/orders"
 	"github.com/gofiber/fiber/v2"
@@ -17,6 +19,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+var mqttClient mqtt.Client
 var orderService *orders.OrderService
 
 func main() {
@@ -48,7 +51,28 @@ func main() {
 	// Initialize order service
 	db := client.Database("orderdb")
 	collection := db.Collection("orders")
-	orderService = orders.NewOrderService(collection)
+
+	// Initialize MQTT client
+	mqttOpts := mqtt.NewClientOptions().
+		AddBroker("tcp://localhost:1883").
+		SetClientID("order_service_client").
+		SetCleanSession(false).
+		SetAutoReconnect(true).
+		SetOnConnectHandler(func(client mqtt.Client) {
+			log.Println("Connected to MQTT broker")
+		}).
+		SetConnectionLostHandler(func(client mqtt.Client, err error) {
+			log.Printf("Connection to MQTT broker lost: %v", err)
+		})
+
+	mqttClient = mqtt.NewClient(mqttOpts)
+	if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
+		log.Printf("Warning: Failed to connect to MQTT broker: %v", token.Error())
+		// Continue without MQTT, notifications won't work
+	} else {
+		log.Println("Connected to MQTT broker for order notifications")
+	}
+	orderService = orders.NewOrderService(collection, mqttClient)
 
 	// Order routes
 	app.Get("/api/orders", handleGetOrders)
@@ -153,6 +177,7 @@ func handleCreateOrder(c *fiber.Ctx) error {
 			"error": "Failed to create order",
 		})
 	}
+	orderService.ScheduleOrderCompletion(order.ID)
 
 	return c.Status(fiber.StatusCreated).JSON(order)
 }
@@ -212,7 +237,7 @@ func verifyToken(authHeader string) (string, error) {
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "http://auth-service:8082/api/auth/verify", nil)
+	req, err := http.NewRequest("GET", "http://localhost:8082/api/auth/verify", nil)
 	if err != nil {
 		return "", err
 	}
