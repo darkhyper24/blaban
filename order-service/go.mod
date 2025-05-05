@@ -9,7 +9,13 @@ require (
 )
 
 require (
+	github.com/gorilla/websocket v1.5.3 // indirect
+	golang.org/x/net v0.27.0 // indirect
+)
+
+require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
+	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect

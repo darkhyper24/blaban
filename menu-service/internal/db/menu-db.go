@@ -18,7 +18,7 @@ func NewMenuDB() (*MenuDB, error) {
 	dbConnString := os.Getenv("DATABASE_URL")
 	if dbConnString == "" {
 		// For local development, connect to localhost
-		dbConnString = "postgres://postgres:admin@localhost:5432/menu"
+		dbConnString = "postgres://postgres:password@postgres:5432/menu?sslmode=disable"
 	}
 
 	dbPool, err := pgxpool.New(context.Background(), dbConnString)
