@@ -54,9 +54,11 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - MONGO_URI=mongodb://mongo:27017/users
+      - USER_DB_DSN=postgres://postgres:password@postgres:5432/users?sslmode=disable
+      - AUTH_SERVICE_URL=http://auth-service:8082
     depends_on:
-      - mongo
+      - postgres
+      - auth-service
     networks:
       - blaban-network
 
@@ -69,8 +71,10 @@ services:
       - "8083:8083"
     environment:
       - MENU_DB_DSN=postgres://postgres:password@postgres:5432/menu?sslmode=disable
+      - AUTH_SERVICE_URL=http://auth-service:8082
     depends_on:
       - postgres
+      - auth-service
     networks:
       - blaban-network
 
@@ -84,9 +88,11 @@ services:
     environment:
       - MONGO_URI=mongodb://mongo:27017/orders
       - MENU_SERVICE_URL=http://menu-service:8083
-      - USER_SERVICE_URL=http://user-service:8081
+      - AUTH_SERVICE_URL=http://auth-service:8082
     depends_on:
       - mongo
+      - auth-service
+      - menu-service
     networks:
       - blaban-network
 

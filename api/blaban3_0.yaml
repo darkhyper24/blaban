@@ -1,34 +1,63 @@
 openapi: 3.0.0
 info:
   title: Blaban Restaurant API
-  description: API specification for Blaban Restaurant System
+  description: API specification for Blaban Restaurant Microservices
   version: 1.0.0
+
 servers:
-  - url: http://api.blaben.com/v1
-    description: Production server
-  - url: http://sandbox.api.blaben.com/v1
-    description: Sandbox server for testing
+  - url: http://localhost:8080
+    description: API Gateway
 
 paths:
-  /auth/signup/{accountType}:
-    parameters:
-      - name: accountType
-        in: path
-        required: true
-        schema:
-          type: string
-          enum: [user, manager]
-          default: user
+  # Auth Service Endpoints (port 8082)
+  /api/auth/tokens:
     post:
       tags: [Authentication]
-      summary: Register new account
-      description: |
-        Create a new account. Default is regular user.
-        Manager registration requires admin privileges.
-      operationId: signupAccount
-      security:
-        - manager_auth: []   # Only required for manager registration
-        - {}                # No auth required for user registration
+      summary: Generate authentication tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id: 
+                  type: string
+                role:
+                  type: string
+      responses:
+        '200':
+          description: Tokens generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Unauthorized
+
+  /api/auth/verify:
+    get:
+      tags: [Authentication]
+      summary: Verify authentication token
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Token verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenVerification'
+
+  # User Service Endpoints (port 8081)
+  /api/users/signup:
+    post:
+      tags: [Users]
+      summary: Register new user
       requestBody:
         required: true
         content:
@@ -36,31 +65,17 @@ paths:
             schema:
               $ref: '#/components/schemas/UserSignup'
       responses:
-        '201':
-          description: Account created successfully
+        '200':
+          description: User registered successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '400':
-          description: Invalid input
-        '409':
-          description: User already exists
+                $ref: '#/components/schemas/UserResponse'
 
-  /auth/login/{accountType}:
-    parameters:
-      - name: accountType
-        in: path
-        required: true
-        schema:
-          type: string
-          enum: [user, manager]
-          default: user
+  /api/users/login:
     post:
-      tags: [Authentication]
-      summary: Account login
-      description: Authenticate and receive access token
-      operationId: loginAccount
+      tags: [Users]
+      summary: User login
       requestBody:
         required: true
         content:
@@ -69,80 +84,41 @@ paths:
               $ref: '#/components/schemas/UserLogin'
       responses:
         '200':
-          description: Authentication successful
+          description: Login successful
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '400':
-          description: Invalid input
-        '401':
-          description: Invalid credentials
+                $ref: '#/components/schemas/TokenResponse'
 
-  /auth/{accountType}:
-    parameters:
-      - name: accountType
-        in: path
-        required: true
-        schema:
-          type: string
-          enum: [user, manager]
-          default: user
+  # Menu Service Endpoints (port 8083)
+  /api/categories:
     get:
-      tags: [Authentication]
-      summary: Get all users of type
-      description: Retrieve all users of the specified account type (Manager only)
-      operationId: getAllUsersByType
-      security:
-        - manager_auth: []
+      tags: [Menu]
+      summary: Get all menu categories
       responses:
         '200':
-          description: List of users
+          description: List of categories
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/UserProfile'
-        '401':
-          description: Unauthorized
-        '403':
-          description: Forbidden (manager access required)
+                $ref: '#/components/schemas/CategoryList'
 
-  /auth/manager/{userId}:
-    delete:
-      tags: [Authentication]
-      summary: Delete specific user (Manager only)
-      description: Permanently remove a single user account
-      operationId: deleteUser
-      security:
-        - manager_auth: []
-      parameters:
-        - name: userId
-          in: path
-          required: true
-          schema:
-            type: string
-            example: 5f8d04b3ab35a63e7c4b5a99
+  /api/menu:
+    get:
+      tags: [Menu]
+      summary: Get full menu with categories
       responses:
-        '204':
-          description: User deleted successfully
-        '403':
-          description: Forbidden (not a manager)
-        '404':
-          description: User not found
-        '500':
-          description: Internal server error
-  # Menu endpoints
-  /menu:
+        '200':
+          description: Complete menu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuList'
     post:
-      tags:
-        - Menu
-      summary: Add new menu item (Manager only)
-      description: Add a new item to the restaurant menu
-      operationId: addMenuItem
+      tags: [Menu]
+      summary: Create new menu item
       security:
-        - manager_auth: []
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -151,72 +127,18 @@ paths:
               $ref: '#/components/schemas/MenuItemCreate'
       responses:
         '201':
-          description: Menu item created successfully
+          description: Menu item created
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/MenuItem'
-        '400':
-          description: Invalid input
-        '401':
-          description: Unauthorized
-        '403':
-          description: Forbidden (manager access required)
-    get:
-      tags:
-        - Menu
-      summary: Get menu items
-      description: Retrieve all menu items with optional filtering
-      operationId: getMenuItems
-      parameters:
-        - name: category
-          in: query
-          description: Filter by category
-          required: false
-          schema:
-            type: string
-        - name: maxPrice
-          in: query
-          description: Maximum price filter
-          required: false
-          schema:
-            type: number
-            format: float
-        
-        - name: minPrice
-          in: query
-          description: minuim price filter
-          required: false
-          schema:
-            type: number
-            format: float
-        - name: search
-          in: query
-          description: Search term for item names
-          required: false
-          schema:
-            type: string
-      responses:
-        '200':
-          description: List of menu items
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/MenuItem'
-        '400':
-          description: Invalid filter parameters
 
-  /menu/{itemId}:
+  /api/menu/{id}:
     get:
-      tags:
-        - Menu
-      summary: Get menu item details
-      description: Retrieve details for a specific menu item
-      operationId: getMenuItem
+      tags: [Menu]
+      summary: Get menu item by ID
       parameters:
-        - name: itemId
+        - name: id
           in: path
           required: true
           schema:
@@ -228,20 +150,51 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MenuItem'
-        '404':
-          description: Item not found
 
-    # Manager-only endpoints
     patch:
-      tags:
-        - Menu
-      summary: edit menu item details (Manager only)
-      description: update details about a specific item
-      operationId: updateMenuItem
+      tags: [Menu]
+      summary: Update menu item
       security:
-        - manager_auth: []
+        - BearerAuth: []
       parameters:
-        - name: itemId
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MenuItemUpdate'
+      responses:
+        '200':
+          description: Menu item updated
+
+    delete:
+      tags: [Menu]
+      summary: Delete menu item
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Menu item deleted
+
+  /api/menu/{id}/discount:
+    post:
+      tags: [Menu]
+      summary: Apply discount to menu item
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
           in: path
           required: true
           schema:
@@ -255,641 +208,257 @@ paths:
       responses:
         '200':
           description: Discount applied
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MenuItemUpdate'
-        '400':
-          description: Invalid discount value
-        '401':
-          description: Unauthorized
-        '404':
-          description: Item not found
-        '500':
-          description: internal server error
-    delete:
-      tags:
-        - Menu
-      summary: Delete menu item (Manager only)
-      description: Permanently remove an item from the menu
-      operationId: deleteMenuItem
-      security:
-        - manager_auth: []
-      parameters:
-        - name: itemId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '204':
-          description: Item deleted successfully
-        '401':
-          description: Unauthorized (missing or invalid token)
-        '403':
-          description: Forbidden (not a manager)
-        '404':
-          description: Item not found
-        '500':
-          description: Internal server error
-  # Cart endpoints
-  /cart:
+
+  # Order Service Endpoints (port 8084)
+  /api/orders:
     get:
-      tags:
-        - Cart
-      summary: Get cart contents
-      description: Retrieve current cart items for authenticated user
-      operationId: getCartItems
+      tags: [Orders]
+      summary: Get user orders
       security:
-        - user_auth: []
+        - BearerAuth: []
       responses:
         '200':
-          description: Cart contents
+          description: List of orders
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Cart'
-        '401':
-          description: Unauthorized
-
+                $ref: '#/components/schemas/OrderList'
+    
     post:
-      tags:
-        - Cart
-      summary: Add item to cart
-      description: Add a menu item to the user's cart
-      operationId: addToCart
+      tags: [Orders]
+      summary: Create new order
       security:
-        - user_auth: []
+        - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CartItemAdd'
+              $ref: '#/components/schemas/OrderCreate'
       responses:
-        '200':
-          description: Item added to cart
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Cart'
-        '400':
-          description: Invalid input
-        '401':
-          description: Unauthorized
-        '404':
-          description: Item not found
-
-  /cart/{cartItemId}:
-    delete:
-      tags:
-        - Cart
-      summary: Remove item from cart
-      description: Remove an item from the user's cart
-      operationId: removeFromCart
-      security:
-        - user_auth: []
-      parameters:
-        - name: cartItemId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '204':
-          description: Item removed from cart
-        '400':
-          description: Invalid input
-        '401':
-          description: Unauthorized
-        '404':
-          description: Item not in cart
-
-  # Order endpoints
-  /orders:
-    get:
-      tags:
-        - Orders
-      summary: Get order history
-      description: Retrieve order history for authenticated user
-      operationId: getOrderHistory
-      security:
-        - user_auth: []
-      responses:
-        '200':
-          description: List of past orders
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Order'
-        '401':
-          description: Unauthorized
-
-    post:
-      tags:
-        - Orders
-      summary: Place order
-      description: Place an order from the current cart contents
-      operationId: placeOrder
-      security:
-        - user_auth: []
-      responses:
-        '202':
-          description: Order accepted for processing
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OrderResponse'
-          headers:
-            Location:
-              description: URL to check order status
-              schema:
-                type: string
-                format: uri
-        '400':
-          description: Cart is empty
-        '401':
-          description: Unauthorized
-
-  /orders/{orderId}:
-    get:
-      tags:
-        - Orders
-      summary: Get order details
-      description: Retrieve details for a specific order
-      operationId: getOrderDetails
-      security:
-        - user_auth: []
-      parameters:
-        - name: orderId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Order details
+        '201':
+          description: Order created
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Order'
-        '401':
-          description: Unauthorized
-        '403':
-          description: Not your order
-        '404':
-          description: Order not found
-
-   # Review endpoints (now for restaurant overall)
-  /reviews:
-    post:
-      tags:
-        - Reviews
-      summary: Submit restaurant review
-      description: Submit a review for the restaurant (1-5 rating with comment)
-      operationId: submitRestaurantReview
-      security:
-        - user_auth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ReviewSubmission'
-      responses:
-        '201':
-          description: Review submitted successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReviewResponse'
-        '400':
-          description: Invalid input (rating must be 1-5, comment required)
-        '401':
-          description: Unauthorized
-
-    get:
-      tags:
-        - Reviews
-      summary: Get restaurant reviews
-      description: Retrieve all reviews for the restaurant
-      operationId: getRestaurantReviews
-
-      responses:
-        '200':
-          description: List of restaurant reviews
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  reviews:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Review'
-                  averageRating:
-                    type: number
-                    format: float
-                    minimum: 1
-                    maximum: 5
-                    example: 4
-                  totalReviews:
-                    type: integer
-                    example: 1
-
-# Asynchronous Communication Endpoints (Webhooks)
-  /webhooks/order-updates:
-    post:
-      tags:
-        - Webhooks
-      summary: Order status updates
-      description: Webhook for receiving order status updates (asynchronous)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/OrderUpdate'
-      responses:
-        '200':
-          description: Update received
-        '400':
-          description: Invalid payload
-
-  /webhooks/payment-confirmation:
-    post:
-      tags:
-        - Webhooks
-      summary: Payment confirmation
-      description: Webhook for receiving payment confirmations (asynchronous)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schema/PaymentConfirmation'
-      responses:
-        '200':
-          description: Confirmation received
-        '400':
-          description: Invalid payload
 
 components:
   securitySchemes:
-    user_auth:
-      type: oauth2
-      flows:
-        authorizationCode:
-          authorizationUrl: https://api.blaban.com/oauth/authorize
-          tokenUrl: https://api.blaban.com/oauth/token
-          scopes:
-            user:read: Read user profile
-            user:write: Update user profile
-            order:read: View orders
-            order:write: Place orders
-            cart:read: View cart
-            cart:write: Modify cart
-            review:write: Submit reviews
-    manager_auth:
-      type: oauth2
-      flows:
-        authorizationCode:
-          authorizationUrl: https://api.blaban.com/oauth/authorize
-          tokenUrl: https://api.blaban.com/oauth/token
-          scopes:
-            menu:read: View menu
-            menu:write: Modify menu
-            discount:write: Apply discounts
+    BearerAuth:
+      type: http
+      scheme: bearer
 
-  schemas:
+schemas:
     UserSignup:
       type: object
-      required:
-        - name
-        - password
       properties:
         name:
           type: string
-          example: johm
-
+          example: "John Manager"
+        email:
+          type: string
+          example: "john@blaban.com"
         password:
           type: string
-          format: password
-          minLength: 8
-          example: verysecure123
+          example: "securepass123"
+        role:
+          type: string
+          enum: [user, manager]
+          example: "manager"
+        bio:
+          type: string
+          example: "Restaurant manager with 5 years experience"
 
     UserLogin:
       type: object
-      required:
-        - name
-        - password
       properties:
-        name:
+        email:
           type: string
-          example: johmy
+          example: "john@blaban.com"
         password:
           type: string
-          format: password
-          example: verysecure123
+          example: "securepass123"
 
-    AuthResponse:
+    TokenResponse:
       type: object
       properties:
         access_token:
           type: string
-          description: JWT access token
-          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-        token_type:
-          type: string
-          example: bearer
-        expires_in:
-          type: integer
-          example: 3600
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
         refresh_token:
           type: string
-          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+    TokenVerification:
+      type: object
+      properties:
+        valid:
+          type: boolean
+          example: true
+        user_id:
+          type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        roles:
+          type: string
+          example: "manager"
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          example: "John Manager"
+        email:
+          type: string
+          example: "john@blaban.com"
+        role:
+          type: string
+          example: "manager"
+
     MenuItemCreate:
       type: object
-      required:
-        - name
-        - price
-        - category
       properties:
         name:
           type: string
-          example: "New Dish"
-        description:
-          type: string
-          example: "Description of the new dish"
-        category:
-          type: string
-          example: "Main Course"
+          example: "Koshari Manga"
         price:
           type: number
-          format: float
-          minimum: 0
-          example: 35.5
-        imageUrl:
+          example: 100
+        category_name:
           type: string
-          format: uri
-          example: "https://example.com/images/new-dish.jpg"
+          example: "Egyptian"
+        quantity:
+          type: integer
+          example: 10
+        is_available:
+          type: boolean
+          example: true
+
     MenuItem:
       type: object
       properties:
         id:
           type: string
-          example: 5f8d04b3ab35a63e7c4b5a9a
+          example: "550e8400-e29b-41d4-a716-446655440001"
         name:
           type: string
-          example: Koshari
-        description:
-          type: string
-          example: Traditional Egyptian dish with rice, lentils, and pasta
-        category:
-          type: string
-          example: Main Course
+          example: "Koshari Manga"
         price:
           type: number
-          format: float
-          example: 30.0
-        discount:
+          example: 100
+        effective_price:
           type: number
-          format: float
-          example: 0.1
-        discountedPrice:
+          example: 85
+        is_available:
+          type: boolean
+          example: true
+        quantity:
+          type: integer
+          example: 10
+        has_discount:
+          type: boolean
+          example: true
+        discount_value:
           type: number
-          format: float
-          example: 27.0
-        imageUrl:
+          example: 15
+        category:
+          $ref: '#/components/schemas/Category'
+
+    Category:
+      type: object
+      properties:
+        id:
           type: string
-          format: uri
-          example: https://example.com/images/koshari.jpg
+          example: "c01b1ff4-f894-4ef2-b27a-22aacc2fca70"
+        name:
+          type: string
+          example: "Egyptian"
+        picture:
+          type: string
+          example: "https://storage.blaban.com/categories/egyptian.jpg"
 
     MenuItemUpdate:
       type: object
       properties:
         name:
           type: string
-          example: Koshari
-        description:
-          type: string
-          example: Traditional Egyptian dish with rice, lentils, and pasta
-        category:
-          type: string
-          example: Main Course
+          example: "Koshari Manga Special"
         price:
           type: number
-          format: float
-          example: 30.0
-        discount:
-          type: number
-          format: float
-          example: 0.15
-        discountedPrice:
-          type: number
-          format: float
-          example: 25.5
-        imageUrl:
+          example: 120
+        category_name:
           type: string
-          format: uri
-          example: https://example.com/images/new-koshari.jpg
+          example: "Egyptian"
+        quantity:
+          type: integer
+          example: 15
+        is_available:
+          type: boolean
+          example: true
 
     DiscountRequest:
       type: object
-      required:
-        - discount
       properties:
-        discount:
+        discount_value:
           type: number
-          format: float
-          minimum: 0
-          maximum: 1
-          example: 0.15
-          description: Discount value (0 to 1 representing 0% to 100%)
+          example: 15
+        active:
+          type: boolean
+          example: true
 
-    Cart:
+    OrderCreate:
       type: object
       properties:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/CartItem'
-        total:
-          type: number
-          format: float
-          example: 125.5
-        discountedTotal:
-          type: number
-          format: float
-          example: 112.95
-
-    CartItem:
-      type: object
-      properties:
-        itemId:
-          type: string
-          example: 5f8d04b3ab35a63e7c4b5a9a
-        name:
-          type: string
-          example: Koshari
-        quantity:
-          type: integer
-          example: 2
-        unitPrice:
-          type: number
-          format: float
-          example: 35.5
-        discount:
-          type: number
-          format: float
-          example: 0.1
-        totalPrice:
-          type: number
-          format: float
-          example: 63.9
-
-    CartItemAdd:
-      type: object
-      required:
-        - itemId
-        - quantity
-      properties:
-        itemId:
-          type: string
-          example: 5f8d04b3ab35a63e7c4b5a9a
-        quantity:
-          type: integer
-          minimum: 1
-          example: 1
-
-    CartItemRemove:
-      type: object
-      required:
-        - itemId
-      properties:
-        itemId:
-          type: string
-          example: 5f8d04b3ab35a63e7c4b5a9a
+            type: object
+            properties:
+              item_id:
+                type: string
+                example: "550e8400-e29b-41d4-a716-446655440001"
+              quantity:
+                type: integer
+                example: 2
 
     Order:
       type: object
       properties:
         id:
           type: string
-          example: 5f8d04b3ab35a63e7c4b5a9b
-        userId:
+          example: "ord_550e8400-e29b-41d4-a716-446655440000"
+        user_id:
           type: string
-          example: 5f8d04b3ab35a63e7c4b5a99
+          example: "550e8400-e29b-41d4-a716-446655440000"
         items:
           type: array
           items:
-            $ref: '#/components/schemas/OrderItem'
-        total:
-          type: number
-          format: float
-          example: 125.5
-        status:
-          type: string
-          enum:
-            - pending
-            - processing
-            - completed
-            - cancelled
-          example: processing
-        createdAt:
-          type: string
-          format: date-time
-          example: 2023-10-15T12:34:56Z
-        updatedAt:
-          type: string
-          format: date-time
-          example: 2023-10-15T12:35:01Z
+            type: object
+            properties:
+              item_id:
+                type: string
+                example: "550e8400-e29b-41d4-a716-446655440001"
+              name:
+                type: string
+                example: "Koshari Manga"
+              price:
+                type: number
+                example: 85
+              quantity:
+                type: integer
+                example: 2
 
-    ReviewSubmission:
+    OrderList:
       type: object
-      required:
-        - rating
-        - comment
       properties:
-        rating:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+        count:
           type: integer
-          minimum: 1
-          maximum: 5
-          example: 4
-          description: Rating from 1 to 5 stars (1=worst, 5=best)
-        comment:
-          type: string
-          minLength: 1
-          maxLength: 500
-          example: "Great food and service!"
-          description: Review comment
-
-    Review:
-      type: object
-      properties:
-        id:
-          type: string
-          example: 5f8d04b3ab35a63e7c4b5a9c
-        userId:
-          type: string
-          example: 5f8d04b3ab35a63e7c4b5a99
-        rating:
-          type: integer
-          example: 4
-        comment:
-          type: string
-          example: "Great food and service!"
-        createdAt:
-          type: string
-          format: date-time
-          example: 2023-10-15T12:36:00Z
-
-    ReviewResponse:
-      type: object
-      properties:
-        reviewId:
-          type: string
-          example: 5f8d04b3ab35a63e7c4b5a9c
-        status:
-          type: string
-          example: "submitted"
-
-    UserProfile:
-      type: object
-      properties:
-        id:
-          type: string
-          example: 5f8d04b3ab35a63e7c4b5a99
-        name:
-          type: string
-          example: john_doe
-        accountType:
-          type: string
-          enum: [user, manager]
-          example: user
-        createdAt:
-          type: string
-          format: date-time
-          example: 2023-10-15T12:30:00Z
-
-    OrderItem:
-      type: object
-      properties:
-        itemId:
-          type: string
-          example: 5f8d04b3ab35a63e7c4b5a9a
-        name:
-          type: string
-          example: Koshari
-        quantity:
-          type: integer
-          example: 2
-        unitPrice:
-          type: number
-          format: float
-          example: 35.5
-        discount:
-          type: number
-          format: float
+          example: 1

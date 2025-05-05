@@ -314,7 +314,7 @@ func handleCreateMenuItem(c *fiber.Ctx) error {
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "http://localhost:8082/api/auth/verify", nil)
+	req, err := http.NewRequest("GET", "http://auth-service:8082/api/auth/verify", nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create auth request",
@@ -431,7 +431,7 @@ func handleUpdateMenuItem(c *fiber.Ctx) error {
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "http://localhost:8082/api/auth/verify", nil)
+	req, err := http.NewRequest("GET", "http://auth-service:8082/api/auth/verify", nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create auth request",
@@ -573,7 +573,7 @@ func handleDeleteMenuItem(c *fiber.Ctx) error {
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "http://localhost:8082/api/auth/verify", nil)
+	req, err := http.NewRequest("GET", "http://auth-service:8082/api/auth/verify", nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create auth request",
@@ -664,7 +664,7 @@ func handleAddDiscount(c *fiber.Ctx) error {
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "http://localhost:8082/api/auth/verify", nil)
+	req, err := http.NewRequest("GET", "http://auth-service:8082/api/auth/verify", nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create auth request",

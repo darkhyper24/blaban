@@ -13,13 +13,11 @@ import (
 
 type OrderService struct {
 	collection *mongo.Collection
-	publisher  *MQTTPublisher
 }
 
 func NewOrderService(collection *mongo.Collection, publisher *MQTTPublisher) *OrderService {
 	return &OrderService{
 		collection: collection,
-		publisher:  publisher,
 	}
 }
 
@@ -68,30 +66,14 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *models.Order) err
 	order.UpdatedAt = now
 	order.Status = "pending"
 
-	// Calculate total
 	var total float64
 	for _, item := range order.Items {
-		// Don't overwrite the original item ID
 		total += item.Price * float64(item.Quantity)
 	}
 	order.Total = total
 
 	_, err := s.collection.InsertOne(ctx, order)
-	if err != nil {
-		return err
-	}
-
-	// Publish order creation status
-	if s.publisher != nil {
-		message := fmt.Sprintf("Order #%s has been received and is pending", order.ID)
-		if err := s.publisher.PublishOrderStatus(order.ID, "pending", message); err != nil {
-			// Just log the error, don't fail the order creation
-			// since the notification is not critical to the order process
-			fmt.Printf("Failed to publish order status: %v\n", err)
-		}
-	}
-
-	return nil
+	return err
 }
 
 // UpdateOrderStatus updates the status of an order and notifies via MQTT

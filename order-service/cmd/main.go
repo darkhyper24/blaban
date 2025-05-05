@@ -33,7 +33,7 @@ func main() {
 	// Connect to MongoDB
 	client, err := mongo.Connect(
 		context.Background(),
-		options.Client().ApplyURI("mongodb://localhost:27017"),
+		options.Client().ApplyURI("mongodb://mongo:27017/orders"),
 	)
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
@@ -223,7 +223,7 @@ func handleUpdateOrderStatus(c *fiber.Ctx) error {
 
 // Helper function to validate menu items
 func getMenuItem(itemID string) (*models.OrderItem, error) {
-	menuURL := fmt.Sprintf("http://localhost:8083/api/menu/%s", itemID)
+	menuURL := fmt.Sprintf("http://menu-service:8083/api/menu/%s", itemID)
 	resp, err := http.Get(menuURL)
 	if err != nil {
 		return nil, err
@@ -276,7 +276,7 @@ func verifyToken(authHeader string) (string, error) {
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "http://localhost:8082/api/auth/verify", nil)
+	req, err := http.NewRequest("GET", "http://auth-service:8082/api/auth/verify", nil)
 	if err != nil {
 		return "", err
 	}

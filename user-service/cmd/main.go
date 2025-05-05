@@ -109,7 +109,7 @@ func main() {
 
 		// Call auth service to generate tokens
 		authResp, err := http.Post(
-			"http://localhost:8082/api/auth/tokens",
+			"http://auth-service:8082/api/auth/tokens",
 			"application/json",
 			strings.NewReader(fmt.Sprintf(`{"user_id":"%s","role":"%s"}`, user.ID, user.Role)),
 		)
