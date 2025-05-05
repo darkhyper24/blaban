@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"encoding/json"
@@ -11,6 +11,11 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type NotificationClient struct {
+	conn     *websocket.Conn
+	messages chan Notification
+}
+
 // Notification represents the structure of a notification message
 type Notification struct {
 	Type      string                 `json:"type"`
@@ -21,15 +26,20 @@ type Notification struct {
 	Timestamp int64                  `json:"timestamp"`
 }
 
-func main() {
-	// Connect to the WebSocket server
+func NewNotificationClient(wsURL string) (*NotificationClient, error) {
 	fmt.Println("\n🔌 Connecting to notification service WebSocket...")
-	conn, _, err := websocket.DefaultDialer.Dial("ws://localhost:8085/ws", nil)
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
-		log.Fatalf("❌ Failed to connect to WebSocket: %v", err)
+		return nil, fmt.Errorf("failed to connect to WebSocket: %v", err)
 	}
-	defer conn.Close()
 
+	return &NotificationClient{
+		conn:     conn,
+		messages: make(chan Notification),
+	}, nil
+}
+
+func (c *NotificationClient) Start() {
 	fmt.Println("✅ Connected to notification service!")
 	fmt.Println("\n📢 Waiting for notifications...")
 	fmt.Println("\n----------------------------------------")
@@ -38,41 +48,24 @@ func main() {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 
-	// Channel to receive messages
-	messages := make(chan Notification)
-
 	// Goroutine to read messages from WebSocket
-	go func() {
-		for {
-			_, message, err := conn.ReadMessage()
-			if err != nil {
-				log.Printf("❌ WebSocket read error: %v", err)
-				close(messages)
-				return
-			}
-
-			var notification Notification
-			if err := json.Unmarshal(message, &notification); err != nil {
-				log.Printf("❌ Error parsing notification: %v", err)
-				continue
-			}
-
-			messages <- notification
-		}
-	}()
+	go c.readMessages()
 
 	// Main loop
 	for {
 		select {
-		case notification, ok := <-messages:
+		case notification, ok := <-c.messages:
 			if !ok {
 				return
 			}
-			displayNotification(notification)
+			c.displayNotification(notification)
 		case <-interrupt:
 			// Cleanly close the connection
 			fmt.Println("\n👋 Closing connection...")
-			err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			err := c.conn.WriteMessage(
+				websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+			)
 			if err != nil {
 				log.Printf("❌ Error during closing WebSocket: %v", err)
 			}
@@ -81,8 +74,33 @@ func main() {
 	}
 }
 
+func (c *NotificationClient) Close() {
+	if c.conn != nil {
+		c.conn.Close()
+	}
+}
+
+func (c *NotificationClient) readMessages() {
+	for {
+		_, message, err := c.conn.ReadMessage()
+		if err != nil {
+			log.Printf("❌ WebSocket read error: %v", err)
+			close(c.messages)
+			return
+		}
+
+		var notification Notification
+		if err := json.Unmarshal(message, &notification); err != nil {
+			log.Printf("❌ Error parsing notification: %v", err)
+			continue
+		}
+
+		c.messages <- notification
+	}
+}
+
 // displayNotification prints a notification in a nice format
-func (c *NotificationClient) displayNotification(n Notification) {
+func displayNotification(n Notification) {
 	// Get timestamp as formatted time
 	t := time.Unix(n.Timestamp, 0)
 	timeStr := t.Format("15:04:05")

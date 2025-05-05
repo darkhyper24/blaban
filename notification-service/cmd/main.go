@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -9,12 +8,9 @@ import (
 	"time"
 
 	"notification-service/internal/mqtt"
-	"notification-service/internal/orders"
 	"notification-service/internal/ws"
 
 	mqttlib "github.com/eclipse/paho.mqtt.golang"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func main() {
@@ -55,25 +51,6 @@ func main() {
 	if !connected {
 		log.Fatalf("Failed to connect to MQTT broker after %d attempts", maxRetries)
 	}
-
-	// Connect to MongoDB
-	mongoClient, err := mongo.Connect(context.Background(), options.Client().ApplyURI(os.Getenv("MONGO_URI")))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer mongoClient.Disconnect(context.Background())
-
-	ordersCollection := mongoClient.Database("orders").Collection("orders")
-
-	// Create order listener
-	orderListener := orders.NewOrderListener(ordersCollection, mqttClient)
-
-	// Start listening for order changes
-	go func() {
-		if err := orderListener.StartListening(context.Background()); err != nil {
-			log.Printf("Error in order listener: %v", err)
-		}
-	}()
 
 	// Setup HTTP server for WebSockets
 	go ws.ServeHTTP(":8087", hub)
