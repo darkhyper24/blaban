@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 var menuDB *db.MenuDB
 var redisClient *redis.Client
 var cacheTTL = 15 * time.Minute
+var authServiceURL = os.Getenv("AUTH_SERVICE_URL")
 
 func main() {
 	app := fiber.New()
@@ -314,7 +316,7 @@ func handleCreateMenuItem(c *fiber.Ctx) error {
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "http://auth-service:8082/api/auth/verify", nil)
+	req, err := http.NewRequest("GET", "http://localhost:8082/api/auth/verify", nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create auth request",
@@ -431,7 +433,7 @@ func handleUpdateMenuItem(c *fiber.Ctx) error {
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "http://auth-service:8082/api/auth/verify", nil)
+	req, err := http.NewRequest("GET", "http://localhost:8082/api/auth/verify", nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create auth request",
@@ -573,7 +575,7 @@ func handleDeleteMenuItem(c *fiber.Ctx) error {
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "http://auth-service:8082/api/auth/verify", nil)
+	req, err := http.NewRequest("GET", "http://localhost:8082/api/auth/verify", nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create auth request",
@@ -664,7 +666,7 @@ func handleAddDiscount(c *fiber.Ctx) error {
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "http://auth-service:8082/api/auth/verify", nil)
+	req, err := http.NewRequest("GET", "http://localhost:8082/api/auth/verify", nil)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create auth request",

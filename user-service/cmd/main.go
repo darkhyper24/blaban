@@ -20,7 +20,12 @@ func main() {
 
 	dsn := os.Getenv("USER_DB_DSN")
 	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/userdb?sslmode=disable"
+		dsn = "postgres://postgres:password@postgres:5432/users?sslmode=disable"
+	}
+	authServiceURL := os.Getenv("AUTH_SERVICE_URL")
+
+	if authServiceURL == "" {
+		authServiceURL = "http://auth-service:8082"
 	}
 
 	db, err := sql.Open("postgres", dsn)
@@ -109,7 +114,7 @@ func main() {
 
 		// Call auth service to generate tokens
 		authResp, err := http.Post(
-			"http://auth-service:8082/api/auth/tokens",
+			authServiceURL+"/api/auth/tokens",
 			"application/json",
 			strings.NewReader(fmt.Sprintf(`{"user_id":"%s","role":"%s"}`, user.ID, user.Role)),
 		)
@@ -154,7 +159,7 @@ func main() {
 
 		// Call auth service to revoke token
 		authResp, err := http.Post(
-			"http://localhost:8082/api/auth/logout",
+			authServiceURL+"/api/auth/logout",
 			"application/json",
 			strings.NewReader(fmt.Sprintf(`{"refresh_token":"%s"}`, req.RefreshToken)),
 		)
