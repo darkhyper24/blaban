@@ -15,7 +15,7 @@ type MenuDB struct {
 // NewMenuDB creates a new database connection pool
 func NewMenuDB() (*MenuDB, error) {
 	// Read connection string from environment variable or use default
-	dbConnString := os.Getenv("MENU_DB_DSN")
+	dbConnString := os.Getenv("DATABASE_URL")
 	if dbConnString == "" {
 		// For local development, connect to localhost
 		dbConnString = "postgres://postgres:password@postgres:5432/menu?sslmode=disable"
