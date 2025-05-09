@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,11 +15,20 @@ type MenuDB struct {
 
 // NewMenuDB creates a new database connection pool
 func NewMenuDB() (*MenuDB, error) {
-	// Read connection string from environment variable or use default
 	dbConnString := os.Getenv("DATABASE_URL")
 	if dbConnString == "" {
-		// For local development, connect to localhost
-		dbConnString = "postgres://postgres:password@postgres:5432/menu?sslmode=disable"
+		dockerConn := "postgres://postgres:password@postgres:5432/menu"
+		localConn := "postgres://postgres:password@localhost:5432/menu"
+		// Try Docker connection first, then local if that fails
+		dbPool, err := pgxpool.New(context.Background(), dockerConn)
+		if err == nil {
+			if err := dbPool.Ping(context.Background()); err == nil {
+				fmt.Println("Connected to Docker PostgreSQL database")
+				return &MenuDB{Pool: dbPool}, nil
+			}
+		}
+		dbConnString = localConn
+		fmt.Println("Docker connection failed, trying local PostgreSQL connection")
 	}
 
 	dbPool, err := pgxpool.New(context.Background(), dbConnString)
@@ -31,6 +41,11 @@ func NewMenuDB() (*MenuDB, error) {
 	}
 
 	return &MenuDB{Pool: dbPool}, nil
+}
+
+// GetPool returns the underlying connection pool
+func (m *MenuDB) GetPool() *pgxpool.Pool {
+	return m.Pool
 }
 
 // Close closes the database connection
