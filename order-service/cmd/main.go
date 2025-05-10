@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 
@@ -21,6 +23,8 @@ import (
 
 var mqttClient mqtt.Client
 var orderService *orders.OrderService
+var menuServiceURL string
+var authServiceURL string
 
 func main() {
 	app := fiber.New()
@@ -28,10 +32,35 @@ func main() {
 	app.Use(cors.New())
 	app.Use(logger.New())
 
+	// Get environment variables with fallbacks
+	mongoURI := os.Getenv("MONGO_URI")
+	if mongoURI == "" {
+		mongoURI = "mongodb://localhost:27017"
+	}
+
+	menuServiceURL = os.Getenv("MENU_SERVICE_URL")
+	if menuServiceURL == "" {
+		menuServiceURL = "http://localhost:8083"
+	}
+
+	authServiceURL = os.Getenv("AUTH_SERVICE_URL")
+	if authServiceURL == "" {
+		authServiceURL = "http://localhost:8082"
+	}
+
+	mqttBroker := os.Getenv("MQTT_BROKER")
+	if mqttBroker == "" {
+		mqttBroker = "tcp://localhost:1883"
+	}
+
+	log.Printf("Connecting to MongoDB at %s", mongoURI)
+	log.Printf("Using Menu Service at %s", menuServiceURL)
+	log.Printf("Using Auth Service at %s", authServiceURL)
+
 	// Connect to MongoDB
 	client, err := mongo.Connect(
 		context.Background(),
-		options.Client().ApplyURI("mongodb://localhost:27017"),
+		options.Client().ApplyURI(mongoURI),
 	)
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
@@ -47,14 +76,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to ping MongoDB: %v", err)
 	}
+	log.Println("Successfully connected to MongoDB")
 
 	// Initialize order service
-	db := client.Database("orderdb")
+	dbName := strings.TrimPrefix(strings.Split(mongoURI, "/")[3], "?")
+	if dbName == "" || strings.Contains(dbName, "?") {
+		dbName = "orders"
+	}
+	log.Printf("Using database: %s", dbName)
+
+	db := client.Database(dbName)
 	collection := db.Collection("orders")
 
 	// Initialize MQTT client
 	mqttOpts := mqtt.NewClientOptions().
-		AddBroker("tcp://localhost:1883").
+		AddBroker(mqttBroker).
 		SetClientID("order_service_client").
 		SetCleanSession(false).
 		SetAutoReconnect(true).
@@ -82,10 +118,6 @@ func main() {
 	// Test route to check if the service is running
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "OK"})
-	})
-
-	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok"})
 	})
 
 	log.Println("Order service started on port 8084")
@@ -184,7 +216,7 @@ func handleCreateOrder(c *fiber.Ctx) error {
 
 // Helper function to validate menu items
 func getMenuItem(itemID string) (*models.OrderItem, error) {
-	menuURL := fmt.Sprintf("http://localhost:8083/api/menu/%s", itemID)
+	menuURL := fmt.Sprintf("%s/api/menu/%s", menuServiceURL, itemID)
 	resp, err := http.Get(menuURL)
 	if err != nil {
 		return nil, err
@@ -237,7 +269,7 @@ func verifyToken(authHeader string) (string, error) {
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "http://localhost:8082/api/auth/verify", nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/auth/verify", authServiceURL), nil)
 	if err != nil {
 		return "", err
 	}
