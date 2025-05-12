@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/darkhyper24/blaban/menu-service/internal/db"
 	"github.com/darkhyper24/blaban/menu-service/internal/models"
@@ -50,6 +52,9 @@ func main() {
 		log.Println("Connected to Redis")
 	}
 
+	// Register default Prometheus metrics
+	app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
+
 	// Routes
 	app.Get("/api/categories", handleGetCategories)
 	app.Get("/api/menu", handleGetMenu)
@@ -60,10 +65,6 @@ func main() {
 	app.Patch("/api/menu/:id", handleUpdateMenuItem)
 	app.Delete("/api/menu/:id", handleDeleteMenuItem)
 	app.Post("/api/menu/:id/discount", handleAddDiscount)
-
-	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "OK"})
-	})
 
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok"})

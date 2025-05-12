@@ -8,12 +8,36 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/darkhyper24/blaban/user-service/internal/users"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+// Define metrics
+var (
+	httpRequestsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Count of all HTTP requests",
+		},
+		[]string{"method", "endpoint", "status"},
+	)
+
+	httpRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "Duration of HTTP requests in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "endpoint"},
+	)
 )
 
 func main() {
@@ -34,6 +58,22 @@ func main() {
 
 	app.Use(cors.New())
 	app.Use(logger.New())
+
+	app.Use(func(c *fiber.Ctx) error {
+		start := time.Now()
+
+		err := c.Next()
+
+		duration := time.Since(start).Seconds()
+		status := c.Response().StatusCode()
+		method := c.Method()
+		endpoint := c.Route().Path
+
+		httpRequestsTotal.WithLabelValues(method, endpoint, fmt.Sprintf("%d", status)).Inc()
+		httpRequestDuration.WithLabelValues(method, endpoint).Observe(duration)
+
+		return err
+	})
 
 	app.Post("/api/users/signup", func(c *fiber.Ctx) error {
 		var req struct {
@@ -154,7 +194,7 @@ func main() {
 
 		// Call auth service to revoke token
 		authResp, err := http.Post(
-			"http://localhost:8082/api/auth/logout",
+			"http://auth-service:8082/api/auth/logout",
 			"application/json",
 			strings.NewReader(fmt.Sprintf(`{"refresh_token":"%s"}`, req.RefreshToken)),
 		)
@@ -184,6 +224,18 @@ func main() {
 	})
 
 	log.Fatal(app.Listen(":8081"))
+
+	go func() {
+		metricsServer := &http.Server{
+			Addr:    ":9100",
+			Handler: promhttp.Handler(),
+		}
+
+		log.Println("Starting metrics server on :9100")
+		if err := metricsServer.ListenAndServe(); err != nil {
+			log.Printf("Metrics server failed: %v", err)
+		}
+	}()
 }
 
 func handleGetProfile(c *fiber.Ctx) error {

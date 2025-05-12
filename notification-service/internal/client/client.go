@@ -74,6 +74,10 @@ func (c *NotificationClient) Start() {
 	}
 }
 
+func (c *NotificationClient) displayNotification(notification Notification) {
+	panic("unimplemented")
+}
+
 func (c *NotificationClient) Close() {
 	if c.conn != nil {
 		c.conn.Close()

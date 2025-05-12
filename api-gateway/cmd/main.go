@@ -12,10 +12,14 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type CircuitBreaker struct {
@@ -78,6 +82,34 @@ func (cb *CircuitBreaker) RecordFailure() {
 
 var serviceCircuitBreakers = make(map[string]*CircuitBreaker)
 
+var (
+	// Define metrics
+	httpRequestsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Count of all HTTP requests",
+		},
+		[]string{"method", "endpoint", "status"},
+	)
+
+	httpRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "Duration of HTTP requests in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "endpoint"},
+	)
+
+	serviceStatus = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "service_status",
+			Help: "Status of microservices (1=up, 0=down)",
+		},
+		[]string{"service"},
+	)
+)
+
 func main() {
 	app := fiber.New(fiber.Config{
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
@@ -100,9 +132,27 @@ func main() {
 		},
 	}))
 
+	app.Use(func(c *fiber.Ctx) error {
+		start := time.Now()
+
+		err := c.Next()
+
+		duration := time.Since(start).Seconds()
+		status := c.Response().StatusCode()
+		method := c.Method()
+		endpoint := c.Route().Path
+
+		httpRequestsTotal.WithLabelValues(method, endpoint, fmt.Sprintf("%d", status)).Inc()
+		httpRequestDuration.WithLabelValues(method, endpoint).Observe(duration)
+
+		return err
+	})
+
 	initCircuitBreakers()
 
 	setupRoutes(app)
+
+	app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
 
 	log.Fatal(app.Listen("0.0.0.0:8080"))
 }
@@ -130,11 +180,14 @@ func setupRoutes(app *fiber.App) {
 func healthCheck(c *fiber.Ctx) error {
 	health := map[string]string{"api_gateway": "ok"}
 
+	serviceStatus.WithLabelValues("api_gateway").Set(1)
+
 	services := []string{"user-service", "auth-service", "menu-service", "order-service", "payment-service", "review-service"}
 	for _, service := range services {
 		serviceURL := os.Getenv(strings.ToUpper(service) + "_URL")
 		if serviceURL == "" {
 			health[service] = "unknown"
+			serviceStatus.WithLabelValues(service).Set(0)
 			continue
 		}
 
@@ -142,8 +195,10 @@ func healthCheck(c *fiber.Ctx) error {
 		_, err := client.Get(serviceURL + "/health")
 		if err != nil {
 			health[service] = "unavailable"
+			serviceStatus.WithLabelValues(service).Set(0)
 		} else {
 			health[service] = "ok"
+			serviceStatus.WithLabelValues(service).Set(1)
 		}
 	}
 

@@ -7,14 +7,19 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 
 	"github.com/darkhyper24/blaban/order-service/internal/models"
 	"github.com/darkhyper24/blaban/order-service/internal/orders"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -22,11 +27,47 @@ import (
 var mqttClient mqtt.Client
 var orderService *orders.OrderService
 
+var (
+	httpRequestsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Count of all HTTP requests",
+		},
+		[]string{"method", "endpoint", "status"},
+	)
+
+	httpRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "Duration of HTTP requests in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "endpoint"},
+	)
+)
+
 func main() {
 	app := fiber.New()
 
 	app.Use(cors.New())
 	app.Use(logger.New())
+
+	// Add Prometheus middleware to collect metrics for all routes
+	app.Use(func(c *fiber.Ctx) error {
+		start := time.Now()
+
+		err := c.Next()
+
+		duration := time.Since(start).Seconds()
+		status := c.Response().StatusCode()
+		method := c.Method()
+		endpoint := c.Route().Path
+
+		httpRequestsTotal.WithLabelValues(method, endpoint, fmt.Sprintf("%d", status)).Inc()
+		httpRequestDuration.WithLabelValues(method, endpoint).Observe(duration)
+
+		return err
+	})
 
 	// Connect to MongoDB
 	client, err := mongo.Connect(
@@ -79,15 +120,11 @@ func main() {
 	app.Get("/api/orders/:id", handleGetOrder)
 	app.Post("/api/orders", handleCreateOrder)
 
-	// Test route to check if the service is running
-	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "OK"})
-	})
-
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok"})
 	})
 
+	app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
 	log.Println("Order service started on port 8084")
 	log.Fatal(app.Listen(":8084"))
 }

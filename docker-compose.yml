@@ -173,11 +173,39 @@ services:
     networks:
       - blaban-network
 
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./monitoring-service/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring
+      - blaban-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - monitoring
+      - blaban-network
+
 networks:
   blaban-network:
+    driver: bridge
+  monitoring:
     driver: bridge
 
 volumes:
   mongo_data:
   postgres_data:
   frontend_build:
+  grafana-data:
